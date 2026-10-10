@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.24)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    project(BootProtocol LANGUAGES C)
+endif()
+add_library(boot_protocol INTERFACE)
+add_library(BootProtocol::BootProtocol ALIAS boot_protocol)
+target_include_directories(boot_protocol INTERFACE include)
+target_compile_features(boot_protocol INTERFACE c_std_11)

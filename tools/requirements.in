@@ -1,0 +1,3 @@
+# Direct Python dependencies used in Phase 1 developer validation.
+pytest==8.4.2
+west==1.5.0

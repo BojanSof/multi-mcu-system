@@ -1,0 +1,3 @@
+menuconfig MULTI_MCU_NODE_API
+    bool "Multi-MCU portable node API"
+    default y

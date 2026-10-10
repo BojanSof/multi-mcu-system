@@ -1,0 +1,3 @@
+menuconfig MULTI_MCU_DIAGNOSTICS
+    bool "Multi-MCU portable diagnostics"
+    default y

@@ -1,0 +1,1 @@
+set(PROTOCOL_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../src/Protocol.c)

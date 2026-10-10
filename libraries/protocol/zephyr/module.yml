@@ -1,0 +1,4 @@
+name: multi_mcu_protocol
+build:
+  cmake: zephyr
+  kconfig: zephyr/Kconfig

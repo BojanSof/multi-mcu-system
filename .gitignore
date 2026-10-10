@@ -1,0 +1,16 @@
+/build/
+**/build/
+build-*/
+.venv/
+.ncs-workspace/
+.cache/
+.env.local
+__pycache__/
+*.py[cod]
+*.elf
+*.bin
+*.hex
+*.map
+firmware/stm32u083/memory/generated/
+keys/
+captures/private/

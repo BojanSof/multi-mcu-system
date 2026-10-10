@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.24)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    project(FirmwareImage LANGUAGES C)
+endif()
+add_library(firmware_image INTERFACE)
+add_library(FirmwareImage::FirmwareImage ALIAS firmware_image)
+target_include_directories(firmware_image INTERFACE include)
+target_compile_features(firmware_image INTERFACE c_std_11)

@@ -1,0 +1,3 @@
+menuconfig MULTI_MCU_PROTOCOL
+    bool "Multi-MCU portable protocol primitives"
+    default y

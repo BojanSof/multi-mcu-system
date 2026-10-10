@@ -1,0 +1,4 @@
+name: multi_mcu_node_api
+build:
+  cmake: zephyr
+  kconfig: zephyr/Kconfig

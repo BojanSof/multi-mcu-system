@@ -1,0 +1,4 @@
+name: multi_mcu_diagnostics
+build:
+  cmake: zephyr
+  kconfig: zephyr/Kconfig
