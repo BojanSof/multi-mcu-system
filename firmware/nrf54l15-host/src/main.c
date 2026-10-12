@@ -10,6 +10,10 @@
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/util.h>
 
+#include "HostNodeManager.h"
+#include "HostSignals.h"
+#include "HostTransport.h"
+
 LOG_MODULE_REGISTER(host_bringup, LOG_LEVEL_INF);
 
 #define HOST_BLINK_INTERVAL_MS 500
@@ -77,6 +81,8 @@ static int Host_ConfigureButton(void) {
 int main(void) {
     int result;
     bool led_on = false;
+    HostLink_State reported_link_state = HOST_LINK_DISABLED;
+    int64_t next_blink = 0;
 #if HOST_HAS_BUTTON
     atomic_val_t reported_button_presses = 0;
 #endif
@@ -97,7 +103,19 @@ int main(void) {
     LOG_WRN("selected board has no enabled sw0 alias; button test disabled");
 #endif
 
-    LOG_INF("nRF54L15 host Phase 1 bring-up started");
+    result = HostSignals_Initialize();
+    if (result != 0) {
+        LOG_ERR("sideband GPIO initialization failed: %d", result);
+        return result;
+    }
+
+    result = HostTransport_Initialize();
+    if (result != 0) {
+        LOG_WRN("node UART unavailable: %d", result);
+    }
+    HostNodeManager_Initialize();
+
+    LOG_INF("nRF54L15 host Phase 2 bring-up started");
 
     for (;;) {
 #if HOST_HAS_BUTTON
@@ -109,14 +127,25 @@ int main(void) {
         }
 #endif
 
-        led_on = !led_on;
-        result = gpio_pin_set_dt(&Host_Led, led_on ? 1 : 0);
-        if (result != 0) {
-            LOG_ERR("LED update failed: %d", result);
-            return result;
+        HostNodeManager_Process();
+        HostNodeManager_Status link_status = HostNodeManager_GetStatus();
+        if (link_status.state != reported_link_state) {
+            reported_link_state = link_status.state;
+            LOG_INF("node link: %s (ready=%u irq=%u)", HostNodeManager_StateName(link_status.state),
+                    HostSignals_NodeReady(), HostSignals_NodeIrqAsserted());
         }
 
-        k_msleep(HOST_BLINK_INTERVAL_MS);
+        if (k_uptime_get() >= next_blink) {
+            next_blink = k_uptime_get() + HOST_BLINK_INTERVAL_MS;
+            led_on = !led_on;
+            result = gpio_pin_set_dt(&Host_Led, led_on ? 1 : 0);
+            if (result != 0) {
+                LOG_ERR("LED update failed: %d", result);
+                return result;
+            }
+        }
+
+        k_msleep(10);
     }
 
     return 0;

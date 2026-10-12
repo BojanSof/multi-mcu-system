@@ -1,0 +1,50 @@
+#ifndef NODE_API_NODE_COMMANDS_H
+#define NODE_API_NODE_COMMANDS_H
+
+#include <stdint.h>
+
+#define NODE_API_MANAGEMENT_VERSION_MAJOR 1U
+#define NODE_API_MANAGEMENT_VERSION_MINOR 0U
+#define NODE_API_IDENTITY_MAX_LENGTH 32U
+#define NODE_API_REQUEST_PREFIX_SIZE 6U
+#define NODE_API_HELLO_RESPONSE_SIZE 11U
+#define NODE_API_CAPABILITIES_RESPONSE_SIZE 10U
+#define NODE_API_ERROR_RESPONSE_SIZE 7U
+#define NODE_API_HEARTBEAT_MAX_ECHO 16U
+
+typedef enum {
+    NODE_API_MESSAGE_HELLO = 0x0001,
+    NODE_API_MESSAGE_GET_IDENTITY = 0x0002,
+    NODE_API_MESSAGE_GET_CAPABILITIES = 0x0003,
+    NODE_API_MESSAGE_HEARTBEAT = 0x0004
+} NodeApi_MessageId;
+
+typedef enum {
+    NODE_API_CAPABILITY_IDENTITY = (1UL << 0),
+    NODE_API_CAPABILITY_HEARTBEAT = (1UL << 1),
+    NODE_API_CAPABILITY_ASYNC_EVENT_IRQ = (1UL << 2)
+} NodeApi_Capability;
+
+typedef enum {
+    NODE_API_STATUS_OK = 0,
+    NODE_API_STATUS_MALFORMED_REQUEST = 1,
+    NODE_API_STATUS_UNKNOWN_MESSAGE = 2,
+    NODE_API_STATUS_STALE_SESSION = 3,
+    NODE_API_STATUS_UNSUPPORTED_VERSION = 4
+} NodeApi_Status;
+
+/*
+ * Phase 2 wire payloads use explicit little-endian fields and are encoded by
+ * transport adapters without casting these declarations onto wire storage.
+ *
+ * Request prefix:       message_id:u16, session_generation:u32
+ * Response prefix:      message_id:u16, node_session_generation:u32
+ * HELLO response tail:  management_major:u16, management_minor:u16,
+ *                       wire_major:u8
+ * IDENTITY tail:        identity_length:u8, identity ASCII bytes (max 32)
+ * CAPABILITIES tail:    capability_mask:u32
+ * HEARTBEAT tail:       0..16 opaque request echo bytes
+ * Error response tail:  status:u8 with PROTOCOL_FLAG_RESPONSE_ERROR set
+ */
+
+#endif

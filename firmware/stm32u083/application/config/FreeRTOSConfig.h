@@ -33,8 +33,6 @@ extern uint32_t SystemCoreClock;
 #define INCLUDE_vTaskDelete 0
 
 #define configKERNEL_INTERRUPT_PRIORITY 3U
-#define configSYSTICK_CLOCK_HZ configCPU_CLOCK_HZ
-
 #define vPortSVCHandler SVC_Handler
 #define xPortPendSVHandler PendSV_Handler
 

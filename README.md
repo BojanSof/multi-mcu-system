@@ -1,7 +1,8 @@
 # Multi-MCU Lab
 
 Reusable dual-MCU engineering demonstration for an nRF54L15-DK host and NUCLEO-U083RC node.
-Phase 1 establishes independent native, Nordic Zephyr, and STM32 HAL/FreeRTOS build boundaries.
+Phase 1 establishes independent build boundaries. Phase 2 adds the bounded COBS/CRC32 UART
+protocol, node discovery, READY and active-low IRQ sidebands.
 
 ## Local setup
 
@@ -128,3 +129,16 @@ commands; configuring or building never flashes the board.
 Firmware flashing is an explicit hardware step, never part of setup. Do not wire the boards until
 `hardware/PINOUT.md` has been completed for the exact board revisions and compatible voltage levels
 have been physically verified. Never connect their USB 5 V or board supply rails together.
+
+## Phase 2 two-board test
+
+Read [the frozen pinout](hardware/PINOUT.md) and complete its voltage gate before attaching any
+signal wire. In particular, set and measure Nordic `VDD:IO` at 3.3 V; its default may be 1.8 V.
+Then follow [the wiring procedure](hardware/WIRING.md). Never connect a power rail between boards.
+
+Build and flash the STM32 application and Nordic host independently. Keep the STM USART2 ST-LINK
+VCP and Nordic console open as separate log streams. With STM powered first, Nordic should report
+the link progressing to `online`, identity `stm32u083rc-node`, a nonzero session generation, and
+capabilities `0x00000007`. Unplugging or resetting the STM board must take the host out of online;
+after READY returns it must rediscover the node without requiring a Nordic reset. See
+`docs/PROTOCOL.md` for the wire contract and `hardware/LOGIC_ANALYZER.md` for optional probes.

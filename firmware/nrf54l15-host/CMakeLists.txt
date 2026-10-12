@@ -12,4 +12,11 @@ list(APPEND EXTRA_ZEPHYR_MODULES
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(multi_mcu_host C)
 
-target_sources(app PRIVATE src/main.c)
+target_sources(app PRIVATE
+    src/main.c
+    src/communication/HostTransport.c
+    src/node_manager/HostNodeManager.c
+    src/platform/HostSignals.c
+)
+
+target_include_directories(app PRIVATE include)

@@ -5,6 +5,7 @@
 
 typedef enum { PLATFORM_STATUS_OK = 0, PLATFORM_STATUS_ERROR = 1 } Platform_Status;
 
+Platform_Status PlatformBoard_ConfigureClock(void);
 Platform_Status PlatformBoard_Initialize(void);
 void PlatformBoard_SetLed(bool enabled);
 void PlatformBoard_ToggleLed(void);

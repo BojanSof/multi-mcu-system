@@ -1,9 +1,17 @@
 # nRF54L15 host firmware
 
-This independent Zephyr application is the Phase 1 bring-up for the
-nRF54L15-DK application core. It blinks the board's devicetree `led0`, logs on
-the board-selected Zephyr console, and reports interrupts from `sw0` when that
-alias is available. It defines no inter-MCU pins and requires no wiring.
+This independent Zephyr application contains the Phase 2 host link for the
+nRF54L15-DK application core. It retains the onboard LED/button bring-up and
+the independent debug console on `uart20`. A separate interrupt-driven
+`uart21` transport uses fixed 1024-byte RX/TX rings and feeds the portable
+COBS/CRC decoder and bounded discovery state machine.
+
+The board overlay assigns host TX P1.11, host RX P1.12, active-low node IRQ
+P1.07 with a pull-up, active-high node READY P1.06 with a pull-down, and the
+inactive-low analyzer output P2.10. These are SoC GPIO names; consult the
+authoritative `hardware/PINOUT.md` for physical header positions and the
+electrical checklist. Do not connect either board until the nRF DK VDDIO is
+physically verified at 3.3 V. Never connect the boards' power rails.
 
 From an initialized workspace using the SDK version pinned by the repository
 manifest:
@@ -22,6 +30,9 @@ west build -d build/nrf54l15-host -t ram_report
 
 Flashing is a separate, explicit hardware step. With exactly one DK attached
 and its debug probe visible, run `west flash -d build/nrf54l15-host`. Expected
-hardware evidence is a 500 ms LED toggle and a log count increment for each
-onboard button press. Do not attach the STM32 or any inter-board wires during
-this test.
+standalone evidence is a 500 ms LED toggle, a log count increment for each
+onboard button press, and `discovering` state with no application-UART traffic while READY is low.
+With a
+safely wired compatible node, the log progresses through `discovering`,
+`identity`, `capabilities`, and `online`, then sends a heartbeat every two
+seconds. Transport traffic is binary only; logs remain on the DK debug console.

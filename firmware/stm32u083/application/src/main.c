@@ -10,6 +10,11 @@ int main(void) {
         }
     }
 
+    if (PlatformBoard_ConfigureClock() != PLATFORM_STATUS_OK) {
+        for (;;) {
+        }
+    }
+
     /*
      * HAL_Init() enables SysTick before the FreeRTOS lists exist. This image
      * uses the FreeRTOS SysTick handler, so leave its interrupt suspended
