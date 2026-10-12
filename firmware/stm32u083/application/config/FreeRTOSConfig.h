@@ -6,6 +6,7 @@
 extern uint32_t SystemCoreClock;
 
 #define configUSE_PREEMPTION 1
+#define configENABLE_MPU 0
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION 0
 #define configCPU_CLOCK_HZ SystemCoreClock
 #define configTICK_RATE_HZ ((TickType_t)1000U)
@@ -14,6 +15,8 @@ extern uint32_t SystemCoreClock;
 #define configMAX_TASK_NAME_LEN 12U
 #define configUSE_16_BIT_TICKS 0
 #define configIDLE_SHOULD_YIELD 1
+#define configUSE_IDLE_HOOK 0
+#define configUSE_TICK_HOOK 1
 #define configUSE_TASK_NOTIFICATIONS 1
 #define configUSE_MUTEXES 0
 #define configUSE_RECURSIVE_MUTEXES 0

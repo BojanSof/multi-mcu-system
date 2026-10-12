@@ -1,15 +1,13 @@
 # Phase 1 report — repository foundation, tools, independent builds
 
-Date: 2026-10-10 (Europe/Skopje)
-Repository revision: unborn repository (`HEAD` does not exist); working tree writes were allowed but
-the sandbox denied `.git/index` writes, so no commit or gitlink could be created.
+Date: 2026-10-12 (Europe/Skopje)
+Repository revision tested: `25262ae200b1df539fd08f01b3e08f0ced2c07cd` plus the documented
+STM32 build changes in the working tree.
 
 ## Outcome
 
-Most Phase 1 implementation is present and all feasible native and Nordic checks pass. The
-stm32-cmake gitlink is pinned, but its checkout and exact resolved CubeU0 lock are not populated;
-the STM32 cross-build and hardware acceptance remain blocked. Phase 1 is therefore
-**INCOMPLETE_BLOCKED_TOOL**, not complete or hardware-verified.
+Phase 1 native, Nordic, and STM32 builds pass with their pinned dependencies. Hardware acceptance
+remains unavailable, so Phase 1 software implementation is complete but is not hardware-verified.
 
 Delivered boundaries:
 
@@ -26,6 +24,9 @@ Delivered boundaries:
   and a physical voltage/wiring gate.
 - The normal STM bring-up stays at the factory flash origin; the provisional A/B layout is disabled
   and reserved for Phase 7.
+- Hardware feedback found and corrected the MB1932 B1 polarity: PC13 is active-low with pull-up.
+- SWD fault inspection found that HAL enabled SysTick before FreeRTOS initialized its lists. Startup
+  now suspends the HAL tick until the scheduler configures the kernel tick.
 
 ## Tool audit
 
@@ -46,10 +47,8 @@ Resolved local tools:
   54-project manifest validates and workspace-selected Python requirements are installed.
 - The ignored `.env.local` adds those tools and project `.venv/bin` to `PATH` for this checkout.
 
-`BLOCKED_TOOL` / required user actions:
+Remaining optional tool action:
 
-- Populate the pinned stm32-cmake gitlink at `ecc5acc082effc4793eb7cbed8d8b7bd4896ca6e` and obtain
-  FreeRTOS-Kernel `V11.3.0`.
 - Optional: `pacman -S --needed cppcheck` and verify `cppcheck --version`.
 - Make the nrfutil log directory writable in the user environment, then verify `nrfutil --version`.
 
@@ -71,11 +70,13 @@ Use `.venv/bin/west` directly or source `.env.local`.
 | Arm GNU compiler/binutils | PASS | GCC 15.2.1 and binutils 2.45.1 from local 15.2.Rel1 toolchain |
 | STM32CubeProgrammer | PASS | bundled v2.23.0 in STM32CubeCLT 1.22.0 |
 | Project Python environment | PASS | pytest 8.4.2, west 1.5.0, `pip check` clean |
-| STM cross configure/build/size | BLOCKED_TOOL | populated stm32-cmake/CubeU0 and FreeRTOS unavailable |
+| STM cross configure/build/size | PASS | Arm GNU 15.2.1; text 14,040 B, data 24 B, BSS 3,584 B, total 17,648 B |
+| STM compilation database | PASS | 20 entries, no duplicate source paths; clangd check passes with trusted cross-driver query |
 | Nordic pinned west build | PASS | NCS 3.4.1/Zephyr 4.4.2, exact nRF54L15 application-core board target |
 | Nordic memory reports | PASS | flash 40,052 B / 1,524 KiB (2.57%); RAM 8,600 B / 256 KiB (3.28%) |
-| Board detection | NOT_RUN_HARDWARE | libusb returned `-99`; no ttyACM/ttyUSB devices visible |
-| Flash, LED, button, separate logs | NOT_RUN_HARDWARE | no boards accessible; no flash operation attempted |
+| STM board detection and flash | PASS | MB1932-U083RC-B01, STM32U083 Rev A; ELF programmed and verified over SWD |
+| STM LED, button, and VCP logs | PASS | user confirmed LD4 heartbeat, USART2 VCP logs, and corrected B1 behavior on hardware |
+| Nordic board detection and HIL | NOT_RUN_HARDWARE | no Nordic hardware evidence recorded in this report |
 | Inter-board wiring | BLOCKED_ELECTRICAL | exact revisions and compatible I/O voltages not physically verified |
 
 ## Exact commands executed
@@ -94,6 +95,9 @@ cmake -S libraries/<package> -B /tmp/multi-mcu-<package> -G Ninja
 cmake --build /tmp/multi-mcu-<package>
 ctest --test-dir /tmp/multi-mcu-<package> --output-on-failure
 cmake --list-presets -S firmware/stm32u083/application
+cmake --preset debug -S firmware/stm32u083/application
+cmake --build firmware/stm32u083/application/build/debug --parallel
+arm-none-eabi-size firmware/stm32u083/application/build/debug/multi_mcu_stm32_application.elf
 cd .ncs-workspace
 ../.venv/bin/west manifest --validate
 ../.venv/bin/west build -b nrf54l15dk/nrf54l15/cpuapp ../firmware/nrf54l15-host \
@@ -102,19 +106,15 @@ cd .ncs-workspace
 ../.venv/bin/west build -d ../build/nrf54l15-host/nrf54l15-host -t ram_report
 ```
 
-Attempted embedded diagnostics:
+Additional embedded diagnostic:
 
 ```sh
 cmake -S firmware/nrf54l15-host -B /tmp/multi-mcu-nrf-check -G Ninja \
   -DBOARD=nrf54l15dk/nrf54l15/cpuapp
-cmake -S firmware/stm32u083/application -B /tmp/multi-mcu-stm32-check -G Ninja \
-  -DCMAKE_TOOLCHAIN_FILE=$PWD/third_party/stm32-cmake/cmake/stm32_gcc.cmake \
-  -DFREERTOS_PATH=/tmp/FreeRTOS-Kernel
 ```
 
 The earlier Nordic diagnostic against an unrelated incomplete Zephyr checkout failed and was not
-counted. It was superseded by the successful pinned NCS 3.4.1 build above. The STM diagnostic still
-stops at the absent pinned stm32-cmake checkout.
+counted. It was superseded by the successful pinned NCS 3.4.1 build above.
 
 ## Hardware acceptance steps
 
@@ -131,11 +131,10 @@ stops at the absent pinned stm32-cmake checkout.
 
 ## Outstanding risks / Phase 2 gate
 
-- Populate and verify the actual stm32-cmake gitlink and resolved CubeU0/FreeRTOS commits; update the
-  lock only from successful builds.
 - Save `west manifest --freeze` as a tracked artifact after deciding the repository policy for the
   large generated manifest.
-- Firmware flash/RAM size and stack reports do not exist until cross-builds run.
+- The STM32 generated linker script currently creates an RWX load segment; review linker segment
+  permissions before later update/bootloader work.
 - PA5/PC13 and USART2 PA2/PA3 are based on ST MB1932B BSP data but still require exact board-revision
   and solder-bridge confirmation for hardware acceptance.
 - No physical inter-MCU pin assignment, UART protocol, option-byte change, bootloader flash, or

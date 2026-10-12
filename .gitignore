@@ -3,6 +3,7 @@
 build-*/
 .venv/
 .ncs-workspace/
+.deps/
 .cache/
 .env.local
 __pycache__/

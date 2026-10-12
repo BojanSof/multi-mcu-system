@@ -9,6 +9,14 @@ int main(void) {
         for (;;) {
         }
     }
+
+    /*
+     * HAL_Init() enables SysTick before the FreeRTOS lists exist. This image
+     * uses the FreeRTOS SysTick handler, so leave its interrupt suspended
+     * until xPortStartScheduler() configures and enables the kernel tick.
+     */
+    HAL_SuspendTick();
+
     if ((PlatformBoard_Initialize() != PLATFORM_STATUS_OK) ||
         (PlatformLog_Initialize() != PLATFORM_STATUS_OK)) {
         for (;;) {

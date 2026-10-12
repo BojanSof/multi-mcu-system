@@ -1,0 +1,2 @@
+CompileFlags:
+  CompilationDatabase: firmware/stm32u083/application/build/debug

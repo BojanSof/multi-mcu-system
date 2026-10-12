@@ -98,10 +98,30 @@ package registry and can fail in restricted environments without preventing `wes
 
 ## STM32 application setup
 
-The STM32 application additionally requires the pinned `third_party/stm32-cmake` submodule,
-CubeU0 CMSIS/HAL sources, and the pinned FreeRTOS-Kernel checkout. See
-`firmware/stm32u083/application/README.md` for its independent configure, build, size, and hardware
-verification commands.
+The STM32 application uses the pinned `third_party/stm32-cmake` submodule and ignored, repository-
+local dependency checkouts under `.deps/`. Follow
+`firmware/stm32u083/application/README.md` to populate them. Then build from the repository root:
+
+```sh
+source ./.env.local
+cmake --preset debug -S firmware/stm32u083/application
+cmake --build firmware/stm32u083/application/build/debug --parallel
+```
+
+The configure preset always exports
+`firmware/stm32u083/application/build/debug/compile_commands.json`. The repository `.clangd` points
+clangd at that database. For clangd to discover the cross-compiler's built-in headers, configure
+Neovim's clangd command with this trusted driver glob:
+
+```lua
+cmd = {
+  "clangd",
+  "--query-driver=/home/bojan/toolchains/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi/bin/arm-none-eabi-*",
+}
+```
+
+Adjust the path on another machine. See the application README for size and hardware verification
+commands; configuring or building never flashes the board.
 
 ## Hardware safety
 

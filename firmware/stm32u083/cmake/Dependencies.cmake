@@ -28,3 +28,10 @@ if(NOT FREERTOS_PATH)
         "The STM32 application never downloads an unpinned kernel implicitly.")
 endif()
 find_package(FreeRTOS COMPONENTS ARM_CM0 REQUIRED)
+
+# FreeRTOS 11 split the Cortex-M0 assembly routines into portasm.c. The
+# currently pinned stm32-cmake finder predates that split.
+if(EXISTS "${FREERTOS_PATH}/portable/GCC/ARM_CM0/portasm.c")
+    target_sources(FreeRTOS::ARM_CM0 INTERFACE
+        "${FREERTOS_PATH}/portable/GCC/ARM_CM0/portasm.c")
+endif()

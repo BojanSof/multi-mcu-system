@@ -27,7 +27,7 @@ Platform_Status PlatformBoard_Initialize(void) {
 
     gpio.Pin = PLATFORM_BUTTON_PIN;
     gpio.Mode = GPIO_MODE_INPUT;
-    gpio.Pull = GPIO_PULLDOWN;
+    gpio.Pull = GPIO_PULLUP;
     gpio.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(PLATFORM_BUTTON_PORT, &gpio);
 
@@ -41,5 +41,5 @@ void PlatformBoard_SetLed(bool enabled) {
 void PlatformBoard_ToggleLed(void) { HAL_GPIO_TogglePin(PLATFORM_LED_PORT, PLATFORM_LED_PIN); }
 
 bool PlatformBoard_IsButtonPressed(void) {
-    return HAL_GPIO_ReadPin(PLATFORM_BUTTON_PORT, PLATFORM_BUTTON_PIN) == GPIO_PIN_SET;
+    return HAL_GPIO_ReadPin(PLATFORM_BUTTON_PORT, PLATFORM_BUTTON_PIN) == GPIO_PIN_RESET;
 }
