@@ -2,10 +2,9 @@
   "version": 6,
   "configurePresets": [
     {
-      "name": "debug",
-      "displayName": "NUCLEO-U083RC application (Debug)",
+      "name": "debug-base",
+      "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
@@ -15,12 +14,34 @@
         "STM32_CMSIS_U0_PATH": "${sourceDir}/../../../.deps/cmsis-device-u0",
         "STM32_HAL_U0_PATH": "${sourceDir}/../../../.deps/stm32u0xx-hal-driver"
       }
+    },
+    {
+      "name": "debug",
+      "displayName": "NUCLEO-U083RC application (Debug, personality A)",
+      "inherits": "debug-base",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "MULTI_MCU_STM32_PERSONALITY": "A"
+      }
+    },
+    {
+      "name": "debug-personality-b",
+      "displayName": "NUCLEO-U083RC application (Debug, personality B)",
+      "inherits": "debug-base",
+      "binaryDir": "${sourceDir}/build/debug-personality-b",
+      "cacheVariables": {
+        "MULTI_MCU_STM32_PERSONALITY": "B"
+      }
     }
   ],
   "buildPresets": [
     {
       "name": "debug",
       "configurePreset": "debug"
+    },
+    {
+      "name": "debug-personality-b",
+      "configurePreset": "debug-personality-b"
     }
   ]
 }

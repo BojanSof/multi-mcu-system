@@ -18,9 +18,11 @@ _Static_assert(sizeof(NODE_TRANSPORT_IDENTITY) - 1U <= NODE_API_IDENTITY_MAX_LEN
 
 typedef struct {
     NodeTransport_State *state;
+    NodeApi_Registry *registry;
     Protocol_Decoder decoder;
     uint8_t rx_chunk[NODE_TRANSPORT_RX_CHUNK_SIZE];
     uint8_t tx_encoded[PROTOCOL_MAX_ENCODED_FRAME];
+    bool clear_irq_pending;
 } NodeTransport_Context;
 
 static NodeTransport_Context NodeTransport_Instance;
@@ -53,16 +55,18 @@ static void NodeTransport_SetPrefix(Protocol_Frame *response, uint16_t message_i
     response->payload_length = NODE_API_REQUEST_PREFIX_SIZE;
 }
 
-static void NodeTransport_Send(NodeTransport_Context *context, Protocol_Frame *response) {
+static bool NodeTransport_Send(NodeTransport_Context *context, Protocol_Frame *response) {
     size_t encoded_length = 0U;
     if (Protocol_EncodeFrame(response, context->tx_encoded, sizeof(context->tx_encoded),
                              &encoded_length) != PROTOCOL_STATUS_OK) {
         ++context->state->rejected_requests;
-        return;
+        return false;
     }
     if (PlatformTransport_Write(context->tx_encoded, encoded_length) != PLATFORM_STATUS_OK) {
         ++context->state->rejected_requests;
+        return false;
     }
+    return true;
 }
 
 static void NodeTransport_SendError(NodeTransport_Context *context, uint16_t sequence,
@@ -73,7 +77,92 @@ static void NodeTransport_SendError(NodeTransport_Context *context, uint16_t seq
     response.sequence = sequence;
     NodeTransport_SetPrefix(&response, message_id, context->state->session_generation);
     response.payload[response.payload_length++] = (uint8_t)status;
-    NodeTransport_Send(context, &response);
+    (void)NodeTransport_Send(context, &response);
+}
+
+static void NodeTransport_WriteServiceHeader(Protocol_Frame *response, uint16_t service_id,
+                                             uint16_t command_or_event_id, uint32_t operation_id) {
+    NodeTransport_WriteU16(&response->payload[response->payload_length], service_id);
+    response->payload_length += 2U;
+    NodeTransport_WriteU16(&response->payload[response->payload_length], command_or_event_id);
+    response->payload_length += 2U;
+    NodeTransport_WriteU32(&response->payload[response->payload_length], operation_id);
+    response->payload_length += 4U;
+}
+
+static bool NodeTransport_HandleListServices(NodeTransport_Context *context,
+                                             const Protocol_Frame *request,
+                                             Protocol_Frame *response) {
+    size_t index;
+    const size_t service_count = NodeApi_GetServiceCount(context->registry);
+    if (request->payload_length != NODE_API_REQUEST_PREFIX_SIZE) {
+        NodeTransport_SendError(context, request->sequence, NODE_API_MESSAGE_LIST_SERVICES,
+                                NODE_API_STATUS_MALFORMED_REQUEST);
+        return false;
+    }
+    response->payload[response->payload_length++] = (uint8_t)service_count;
+    for (index = 0U; index < service_count; ++index) {
+        const NodeApi_ServiceDescriptor *descriptor = NodeApi_GetService(context->registry, index);
+        if ((descriptor == NULL) ||
+            ((size_t)response->payload_length + NODE_API_SERVICE_DESCRIPTOR_SIZE >
+             PROTOCOL_MAX_PAYLOAD)) {
+            NodeTransport_SendError(context, request->sequence, NODE_API_MESSAGE_LIST_SERVICES,
+                                    NODE_API_STATUS_CAPACITY_EXCEEDED);
+            return false;
+        }
+        NodeTransport_WriteU16(&response->payload[response->payload_length],
+                               descriptor->service_id);
+        response->payload_length += 2U;
+        NodeTransport_WriteU16(&response->payload[response->payload_length],
+                               descriptor->version_major);
+        response->payload_length += 2U;
+        NodeTransport_WriteU16(&response->payload[response->payload_length],
+                               descriptor->version_minor);
+        response->payload_length += 2U;
+        NodeTransport_WriteU16(&response->payload[response->payload_length], descriptor->flags);
+        response->payload_length += 2U;
+    }
+    return true;
+}
+
+static bool NodeTransport_HandleServiceCall(NodeTransport_Context *context,
+                                            const Protocol_Frame *request,
+                                            Protocol_Frame *response) {
+    NodeApi_ServiceRequest service_request = {0};
+    NodeApi_ServiceResponse service_response = {0};
+    NodeApi_Status status;
+    const size_t call_offset = NODE_API_REQUEST_PREFIX_SIZE;
+    const size_t data_offset = call_offset + NODE_API_SERVICE_CALL_HEADER_SIZE;
+    if ((request->payload_length < data_offset) ||
+        ((size_t)request->payload_length - data_offset > NODE_API_SERVICE_DATA_MAX_LENGTH)) {
+        NodeTransport_SendError(context, request->sequence, NODE_API_MESSAGE_SERVICE_CALL,
+                                NODE_API_STATUS_MALFORMED_REQUEST);
+        return false;
+    }
+    service_request.service_id = NodeTransport_ReadU16(&request->payload[call_offset]);
+    service_request.command_id = NodeTransport_ReadU16(&request->payload[call_offset + 2U]);
+    service_request.operation_id = NodeTransport_ReadU32(&request->payload[call_offset + 4U]);
+    service_request.data = &request->payload[data_offset];
+    service_request.data_length = (size_t)request->payload_length - data_offset;
+    status = NodeApi_DispatchRequest(context->registry, &service_request, &service_response);
+    if (status != NODE_API_STATUS_OK) {
+        NodeTransport_SendError(context, request->sequence, NODE_API_MESSAGE_SERVICE_CALL, status);
+        return false;
+    }
+    if ((service_response.data_length > NODE_API_SERVICE_DATA_MAX_LENGTH) ||
+        ((size_t)response->payload_length + NODE_API_SERVICE_CALL_HEADER_SIZE +
+             service_response.data_length >
+         PROTOCOL_MAX_PAYLOAD)) {
+        NodeTransport_SendError(context, request->sequence, NODE_API_MESSAGE_SERVICE_CALL,
+                                NODE_API_STATUS_CAPACITY_EXCEEDED);
+        return false;
+    }
+    NodeTransport_WriteServiceHeader(response, service_request.service_id,
+                                     service_request.command_id, service_request.operation_id);
+    memcpy(&response->payload[response->payload_length], service_response.data,
+           service_response.data_length);
+    response->payload_length += (uint16_t)service_response.data_length;
+    return true;
 }
 
 static void NodeTransport_HandleRequest(const Protocol_Frame *request, void *opaque) {
@@ -159,6 +248,18 @@ static void NodeTransport_HandleRequest(const Protocol_Frame *request, void *opa
         response.payload_length += (uint16_t)echo_length;
         break;
     }
+    case NODE_API_MESSAGE_LIST_SERVICES:
+        if (!NodeTransport_HandleListServices(context, request, &response)) {
+            ++context->state->rejected_requests;
+            return;
+        }
+        break;
+    case NODE_API_MESSAGE_SERVICE_CALL:
+        if (!NodeTransport_HandleServiceCall(context, request, &response)) {
+            ++context->state->rejected_requests;
+            return;
+        }
+        break;
     default:
         ++context->state->rejected_requests;
         NodeTransport_SendError(context, request->sequence, message_id,
@@ -167,7 +268,7 @@ static void NodeTransport_HandleRequest(const Protocol_Frame *request, void *opa
     }
 
     ++context->state->accepted_requests;
-    NodeTransport_Send(context, &response);
+    (void)NodeTransport_Send(context, &response);
 }
 
 static void NodeTransport_HandleDecodeError(Protocol_Status status, void *opaque) {
@@ -176,8 +277,9 @@ static void NodeTransport_HandleDecodeError(Protocol_Status status, void *opaque
     ++context->state->rejected_requests;
 }
 
-void NodeTransport_Initialize(NodeTransport_State *state, uint32_t session_generation) {
-    if (state == NULL) {
+void NodeTransport_Initialize(NodeTransport_State *state, uint32_t session_generation,
+                              NodeApi_Registry *registry) {
+    if ((state == NULL) || (registry == NULL)) {
         return;
     }
     memset(&NodeTransport_Instance, 0, sizeof(NodeTransport_Instance));
@@ -185,6 +287,7 @@ void NodeTransport_Initialize(NodeTransport_State *state, uint32_t session_gener
     state->accepted_requests = 0U;
     state->rejected_requests = 0U;
     NodeTransport_Instance.state = state;
+    NodeTransport_Instance.registry = registry;
     Protocol_DecoderInitialize(&NodeTransport_Instance.decoder);
     PlatformSideband_Initialize();
     (void)PlatformTransport_Initialize();
@@ -196,6 +299,10 @@ void NodeTransport_Process(NodeTransport_State *state) {
     if ((state == NULL) || (state != NodeTransport_Instance.state)) {
         return;
     }
+    if (NodeTransport_Instance.clear_irq_pending) {
+        PlatformSideband_SetIrqPending(false);
+        NodeTransport_Instance.clear_irq_pending = false;
+    }
     received = PlatformTransport_Read(NodeTransport_Instance.rx_chunk,
                                       sizeof(NodeTransport_Instance.rx_chunk));
     if (received == 0U) {
@@ -204,4 +311,32 @@ void NodeTransport_Process(NodeTransport_State *state) {
     (void)Protocol_ConsumeBytes(&NodeTransport_Instance.decoder, NodeTransport_Instance.rx_chunk,
                                 received, NodeTransport_HandleRequest,
                                 NodeTransport_HandleDecodeError, &NodeTransport_Instance);
+}
+
+NodeApi_Status NodeTransport_PublishServiceEvent(uint16_t service_id, uint16_t event_id,
+                                                 uint32_t operation_id, const uint8_t *data,
+                                                 size_t data_length) {
+    Protocol_Frame event = {0};
+    if ((NodeTransport_Instance.state == NULL) ||
+        (data_length > NODE_API_SERVICE_DATA_MAX_LENGTH) ||
+        ((data == NULL) && (data_length != 0U))) {
+        return NODE_API_STATUS_INVALID_ARGUMENT;
+    }
+    event.kind = PROTOCOL_FRAME_EVENT;
+    event.sequence = 0U;
+    NodeTransport_SetPrefix(&event, NODE_API_MESSAGE_SERVICE_EVENT,
+                            NodeTransport_Instance.state->session_generation);
+    NodeTransport_WriteServiceHeader(&event, service_id, event_id, operation_id);
+    if (data_length != 0U) {
+        memcpy(&event.payload[event.payload_length], data, data_length);
+    }
+    event.payload_length += (uint16_t)data_length;
+    PlatformSideband_SetIrqPending(true);
+    NodeTransport_Instance.clear_irq_pending = true;
+    if (!NodeTransport_Send(&NodeTransport_Instance, &event)) {
+        PlatformSideband_SetIrqPending(false);
+        NodeTransport_Instance.clear_irq_pending = false;
+        return NODE_API_STATUS_BUSY;
+    }
+    return NODE_API_STATUS_OK;
 }

@@ -19,4 +19,7 @@ target_sources(app PRIVATE
     src/platform/HostSignals.c
 )
 
-target_include_directories(app PRIVATE include)
+target_include_directories(app PRIVATE
+    include
+    "${MULTI_MCU_ROOT}/examples/virtual-io/include"
+)

@@ -13,10 +13,14 @@
 #include "HostNodeManager.h"
 #include "HostSignals.h"
 #include "HostTransport.h"
+#include "node_api/NodeServices.h"
+#include "virtual_io/VirtualIo.h"
 
 LOG_MODULE_REGISTER(host_bringup, LOG_LEVEL_INF);
 
 #define HOST_BLINK_INTERVAL_MS 500
+#define HOST_SENSOR_SAMPLE_INTERVAL_MS 5000
+#define HOST_ACTUATOR_DEMO_DURATION_MS 2000U
 
 #define HOST_LED_NODE DT_ALIAS(led0)
 #define HOST_BUTTON_NODE DT_ALIAS(sw0)
@@ -83,6 +87,7 @@ int main(void) {
     bool led_on = false;
     HostLink_State reported_link_state = HOST_LINK_DISABLED;
     int64_t next_blink = 0;
+    int64_t next_sensor_sample = 0;
 #if HOST_HAS_BUTTON
     atomic_val_t reported_button_presses = 0;
 #endif
@@ -115,15 +120,38 @@ int main(void) {
     }
     HostNodeManager_Initialize();
 
-    LOG_INF("nRF54L15 host Phase 2 bring-up started");
+    LOG_INF("nRF54L15 host Phase 3 service demo started");
 
     for (;;) {
 #if HOST_HAS_BUTTON
         atomic_val_t button_presses = atomic_get(&Host_ButtonPressCount);
 
         if (button_presses != reported_button_presses) {
+            uint32_t operation_id;
+
             reported_button_presses = button_presses;
             LOG_INF("onboard button presses: %ld", (long)button_presses);
+            if (HostNodeManager_HasService(VIRTUAL_IO_ACTUATOR_SERVICE_ID)) {
+                uint8_t duration[4];
+
+                duration[0] = (uint8_t)HOST_ACTUATOR_DEMO_DURATION_MS;
+                duration[1] = (uint8_t)(HOST_ACTUATOR_DEMO_DURATION_MS >> 8U);
+                duration[2] = (uint8_t)(HOST_ACTUATOR_DEMO_DURATION_MS >> 16U);
+                duration[3] = (uint8_t)(HOST_ACTUATOR_DEMO_DURATION_MS >> 24U);
+                result = HostNodeManager_CallService(VIRTUAL_IO_ACTUATOR_SERVICE_ID,
+                                                     VIRTUAL_IO_ACTUATOR_COMMAND_START, duration,
+                                                     sizeof(duration), &operation_id);
+                if (result == 0) {
+                    LOG_INF("requested virtual actuator operation %u", operation_id);
+                }
+            } else if (HostNodeManager_HasService(VIRTUAL_IO_SENSOR_SERVICE_ID)) {
+                result = HostNodeManager_CallService(VIRTUAL_IO_SENSOR_SERVICE_ID,
+                                                     VIRTUAL_IO_SENSOR_COMMAND_SAMPLE, NULL, 0U,
+                                                     &operation_id);
+                if (result == 0) {
+                    LOG_INF("requested virtual sensor sample operation %u", operation_id);
+                }
+            }
         }
 #endif
 
@@ -133,6 +161,20 @@ int main(void) {
             reported_link_state = link_status.state;
             LOG_INF("node link: %s (ready=%u irq=%u)", HostNodeManager_StateName(link_status.state),
                     HostSignals_NodeReady(), HostSignals_NodeIrqAsserted());
+        }
+
+        if (link_status.state == HOST_LINK_ONLINE &&
+            HostNodeManager_HasService(VIRTUAL_IO_SENSOR_SERVICE_ID) &&
+            k_uptime_get() >= next_sensor_sample) {
+            uint32_t operation_id;
+
+            next_sensor_sample = k_uptime_get() + HOST_SENSOR_SAMPLE_INTERVAL_MS;
+            result = HostNodeManager_CallService(VIRTUAL_IO_SENSOR_SERVICE_ID,
+                                                 VIRTUAL_IO_SENSOR_COMMAND_SAMPLE, NULL, 0U,
+                                                 &operation_id);
+            if (result == 0) {
+                LOG_INF("requested periodic virtual sensor sample operation %u", operation_id);
+            }
         }
 
         if (k_uptime_get() >= next_blink) {

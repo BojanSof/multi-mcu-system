@@ -2,7 +2,8 @@
 
 Reusable dual-MCU engineering demonstration for an nRF54L15-DK host and NUCLEO-U083RC node.
 Phase 1 establishes independent build boundaries. Phase 2 adds the bounded COBS/CRC32 UART
-protocol, node discovery, READY and active-low IRQ sidebands.
+protocol, node discovery, READY and active-low IRQ sidebands. Phase 3 adds a portable service
+registry and a removable deterministic virtual-I/O demonstration.
 
 ## Local setup
 
@@ -107,6 +108,10 @@ local dependency checkouts under `.deps/`. Follow
 source ./.env.local
 cmake --preset debug -S firmware/stm32u083/application
 cmake --build firmware/stm32u083/application/build/debug --parallel
+
+# Optional personality B adds the virtual actuator.
+cmake --preset debug-personality-b -S firmware/stm32u083/application
+cmake --build firmware/stm32u083/application/build/debug-personality-b --parallel
 ```
 
 The configure preset always exports
@@ -142,3 +147,16 @@ the link progressing to `online`, identity `stm32u083rc-node`, a nonzero session
 capabilities `0x00000007`. Unplugging or resetting the STM board must take the host out of online;
 after READY returns it must rediscover the node without requiring a Nordic reset. See
 `docs/PROTOCOL.md` for the wire contract and `hardware/LOGIC_ANALYZER.md` for optional probes.
+
+## Phase 3 service demo
+
+The default STM `debug` preset builds personality A: GPIO button events plus the deterministic
+virtual sensor. The `debug-personality-b` preset additionally exposes the asynchronous virtual
+actuator. Both use the same Nordic image.
+
+After discovery, the Nordic log lists the advertised service IDs and reaches `online`. It samples
+the simulated sensor every five seconds. On personality A, the Nordic button requests an extra
+sample. On personality B, it starts a two-second virtual actuator operation; the Nordic log then
+shows acceptance followed separately by 25%, 50%, 75%, and completion events. Pressing the STM
+button produces pressed/released GPIO events in both logs. These integer-valued services are
+software simulations and do not represent physical sensing, voltage, power, or motion.

@@ -20,12 +20,15 @@ git clone --branch v1.0.0 --depth 1 https://github.com/STMicroelectronics/cmsis-
 git clone --branch v1.0.0 --depth 1 https://github.com/STMicroelectronics/stm32u0xx-hal-driver.git .deps/stm32u0xx-hal-driver
 git clone --branch V11.3.0 --depth 1 https://github.com/FreeRTOS/FreeRTOS-Kernel.git .deps/FreeRTOS-Kernel
 source ./.env.local
-cmake --preset debug -S firmware/stm32u083/application
+cmake --preset debug -S firmware/stm32u083/application \
+  -DMULTI_MCU_STM32_PERSONALITY=B
 cmake --build firmware/stm32u083/application/build/debug --parallel
 arm-none-eabi-size firmware/stm32u083/application/build/debug/multi_mcu_stm32_application.elf
 ```
 
-The preset exports `build/debug/compile_commands.json`; the repository `.clangd` selects it for
+Select personality `A` for GPIO events plus the deterministic virtual sensor, or `B` to add the
+virtual actuator. The selection is a CMake cache setting, so reconfigure and rebuild before
+flashing a different personality. The preset exports `build/debug/compile_commands.json`; the repository `.clangd` selects it for
 editors. See the root README for the clangd cross-compiler query setting. After a successful build,
 inspect the ELF/map before any flash action. With exactly one Nucleo attached, flash and verify it:
 
@@ -35,7 +38,8 @@ STM32_Programmer_CLI -c port=SWD \
   -v -rst
 ```
 
-Expected standalone evidence is `stm32: phase-2 node ready`, an LD4 transition every 500 ms, a
-heartbeat log every two seconds, and one log per button press. The button does not alter LD4. For the two-board
-test, first complete `hardware/PINOUT.md`'s voltage gate, power both boards off, and follow
-`hardware/WIRING.md`. Do not connect power rails, RESET, or BOOT0.
+Expected standalone evidence is `stm32: phase-3 node ready, personality A` (or `B`), an LD4
+transition every 500 ms, a heartbeat log every two seconds, and a log for each button press and
+release. The button does not alter LD4; with a connected host it publishes a generic GPIO service
+event. For the two-board test, first complete `hardware/PINOUT.md`'s voltage gate, power both
+boards off, and follow `hardware/WIRING.md`. Do not connect power rails, RESET, or BOOT0.

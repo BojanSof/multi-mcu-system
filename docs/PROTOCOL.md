@@ -35,6 +35,26 @@ An error response sets `RESPONSE_ERROR` and appends one status byte. Non-HELLO r
 stale session are rejected. The host sends nothing while READY is low, performs HELLO, identity,
 and capability discovery after READY rises, and uses bounded timeouts and retries thereafter.
 
+## Phase 3 service payloads
+
+`LIST_SERVICES` (`0x0005`) returns `count:u8` followed by that many eight-byte descriptors:
+`service_id:u16, version_major:u16, version_minor:u16, flags:u16`. The list is bounded by
+`NODE_API_MAX_SERVICES`.
+
+`SERVICE_CALL` (`0x0100`) adds `service_id:u16, command_id:u16, operation_id:u32` after the normal
+request/response prefix, followed by at most 64 bytes of service-owned data. A successful response
+means that a command was accepted or completed synchronously; it does not claim that an
+asynchronous operation has completed.
+
+`SERVICE_EVENT` (`0x8000`) is a frame of kind `EVENT` with sequence zero. After the normal
+message/session prefix it contains `service_id:u16, event_id:u16, operation_id:u32` and bounded
+event-owned data. The active-low IRQ sideband indicates that node event traffic is pending; UART
+framing remains authoritative if an IRQ edge is missed.
+
+Generic GPIO event IDs live in `node-api`; removable virtual sensor and actuator schemas live in
+`examples/virtual-io`. Side-effecting actuator calls require a nonzero operation ID. Retrying an
+accepted ID returns its original result without repeating the operation.
+
 The canonical constants and APIs are in `libraries/protocol/include/protocol/` and
 `libraries/node-api/include/node_api/NodeCommands.h`. Portable tests cover the golden frame,
 maximum length, partial streams, deterministic varied-length round trips, malformed COBS, invalid

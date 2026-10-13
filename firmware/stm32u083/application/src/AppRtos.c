@@ -3,6 +3,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "AppServices.h"
 #include "NodeTransport.h"
 #include "stm32u083_platform/PlatformBoard.h"
 #include "stm32u083_platform/PlatformLog.h"
@@ -20,24 +21,37 @@ static StackType_t AppRtos_TaskStack[APP_TASK_STACK_WORDS];
 static StaticTask_t AppRtos_IdleTaskControl;
 static StackType_t AppRtos_IdleTaskStack[configMINIMAL_STACK_SIZE];
 static NodeTransport_State AppRtos_NodeTransport;
+static AppServices_State AppRtos_Services;
 
 static void AppRtos_BringupTask(void *context) {
     bool previous_button = false;
     uint32_t heartbeat_polls = 0U;
     uint32_t heartbeat_count = 0U;
     (void)context;
-    NodeTransport_Initialize(&AppRtos_NodeTransport, HAL_GetUIDw0() ^ HAL_GetTick() ^ SysTick->VAL);
-    (void)PlatformLog_Write("stm32: phase-2 node ready\r\n",
-                            sizeof("stm32: phase-2 node ready\r\n") - 1U);
+    const uint32_t seed = HAL_GetUIDw0() ^ HAL_GetTick() ^ SysTick->VAL;
+    if (AppServices_Initialize(&AppRtos_Services, seed) != NODE_API_STATUS_OK) {
+        PlatformBoard_SetLed(true);
+        for (;;) {
+        }
+    }
+    NodeTransport_Initialize(&AppRtos_NodeTransport, seed, &AppRtos_Services.registry);
+    (void)PlatformLog_Write("stm32: phase-3 node ready, personality ",
+                            sizeof("stm32: phase-3 node ready, personality ") - 1U);
+    (void)PlatformLog_Write(AppServices_GetPersonalityName(), 1U);
+    (void)PlatformLog_Write("\r\n", 2U);
 
     for (;;) {
         const bool button = PlatformBoard_IsButtonPressed();
-        if (button && !previous_button) {
-            (void)PlatformLog_Write("stm32: user button pressed\r\n",
-                                    sizeof("stm32: user button pressed\r\n") - 1U);
+        NodeTransport_Process(&AppRtos_NodeTransport);
+        if (button != previous_button) {
+            (void)AppServices_PublishButton(&AppRtos_Services, button);
+            (void)PlatformLog_Write(button ? "stm32: button pressed event\r\n"
+                                           : "stm32: button released event\r\n",
+                                    button ? sizeof("stm32: button pressed event\r\n") - 1U
+                                           : sizeof("stm32: button released event\r\n") - 1U);
         }
         previous_button = button;
-        NodeTransport_Process(&AppRtos_NodeTransport);
+        (void)AppServices_Tick(&AppRtos_Services, HAL_GetTick());
 
         ++heartbeat_polls;
         if (heartbeat_polls >= APP_HEARTBEAT_POLLS) {
@@ -46,8 +60,8 @@ static void AppRtos_BringupTask(void *context) {
             ++heartbeat_count;
             if (heartbeat_count >= APP_LOG_HEARTBEAT_COUNT) {
                 heartbeat_count = 0U;
-                (void)PlatformLog_Write("stm32: phase-2 heartbeat\r\n",
-                                        sizeof("stm32: phase-2 heartbeat\r\n") - 1U);
+                (void)PlatformLog_Write("stm32: phase-3 heartbeat\r\n",
+                                        sizeof("stm32: phase-3 heartbeat\r\n") - 1U);
             }
         }
 

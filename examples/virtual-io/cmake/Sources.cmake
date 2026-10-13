@@ -1,0 +1,1 @@
+set(VIRTUAL_IO_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../src/VirtualIo.c)
