@@ -55,6 +55,28 @@ Generic GPIO event IDs live in `node-api`; removable virtual sensor and actuator
 `examples/virtual-io`. Side-effecting actuator calls require a nonzero operation ID. Retrying an
 accepted ID returns its original result without repeating the operation.
 
+The node also keeps one bounded replay entry for the most recent successful service request, keyed
+by service, command, operation ID and exact request data. An identical transport retry receives
+the cached response without invoking the service again. Transient error responses are not cached
+because their underlying condition may change.
+
+## Phase 4 diagnostics service
+
+Development builds may advertise generic diagnostics service `0x0002`. Commands are `GET_STATUS`
+(`1`), `ENABLE_INJECTION` (`2`), `DISABLE_ALL` (`3`) and `GET_RECORD` (`4`). Runtime injection
+state is volatile and clears at reboot; non-Debug STM builds reject injection enablement.
+
+A diagnostic record is exactly 17 bytes in explicit little-endian order:
+`timestamp_ms:u32, correlation_id:u32, detail:u32, code:u16, source:u8, severity:u8, domain:u8`.
+The timestamp is local to its source and is not globally synchronized. Status data is 13 bytes:
+`enabled_mask:u32, total_recorded:u32, overflow_count:u32, queued_count:u8`. `GET_RECORD` returns
+`available:u8` followed by an optional record. A diagnostic record event uses event ID `1` and the
+same 17-byte encoding.
+
+The record queue is bounded to 16 entries. On overflow it drops the oldest entry and increments a
+saturating overflow counter. Host tooling correlates records by operation/correlation ID and
+collector receipt time without claiming MCU clock synchronization.
+
 The canonical constants and APIs are in `libraries/protocol/include/protocol/` and
 `libraries/node-api/include/node_api/NodeCommands.h`. Portable tests cover the golden frame,
 maximum length, partial streams, deterministic varied-length round trips, malformed COBS, invalid

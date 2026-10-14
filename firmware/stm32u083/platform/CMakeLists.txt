@@ -3,6 +3,7 @@ add_library(Stm32U083::Platform ALIAS stm32u083_platform)
 
 target_sources(stm32u083_platform INTERFACE
     "${CMAKE_CURRENT_LIST_DIR}/src/PlatformBoard.c"
+    "${CMAKE_CURRENT_LIST_DIR}/src/PlatformDebug.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/PlatformLog.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/PlatformSideband.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/PlatformTransport.c")

@@ -25,6 +25,10 @@ typedef struct {
     uint32_t timeouts;
     uint32_t rejected_responses;
     uint32_t received_events;
+    uint32_t diagnostic_records;
+    uint32_t diagnostic_overflows;
+    uint32_t node_injection_mask;
+    uint8_t node_diagnostic_queued;
     uint32_t next_operation_id;
     size_t service_count;
     NodeApi_ServiceDescriptor services[NODE_API_MAX_SERVICES];
@@ -38,5 +42,9 @@ const char *HostNodeManager_StateName(HostLink_State state);
 bool HostNodeManager_HasService(uint16_t service_id);
 int HostNodeManager_CallService(uint16_t service_id, uint16_t command_id, const uint8_t *data,
                                 size_t data_length, uint32_t *operation_id);
+int HostNodeManager_DiagnosticsGetStatus(void);
+int HostNodeManager_DiagnosticsEnable(uint8_t injection_id);
+int HostNodeManager_DiagnosticsDisableAll(void);
+int HostNodeManager_DiagnosticsGetRecord(void);
 
 #endif

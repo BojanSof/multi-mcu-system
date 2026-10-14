@@ -45,12 +45,26 @@ int main(void) {
     CHECK(NodeApi_DispatchRequest(&registry, &valid, &response) == NODE_API_STATUS_OK);
     CHECK(response.status == NODE_API_STATUS_OK && response.data_length == 1U &&
           response.data[0] == 0x5AU && calls == 1U);
+    CHECK(NodeApi_DispatchRequest(&registry, &valid, &response) == NODE_API_STATUS_OK);
+    CHECK(response.data[0] == 0x5AU && calls == 1U);
+    {
+        const uint8_t changed_data = 1U;
+        const NodeApi_ServiceRequest changed_request = {0x2222U, 7U, 9U, &changed_data, 1U};
+        CHECK(NodeApi_DispatchRequest(&registry, &changed_request, &response) ==
+              NODE_API_STATUS_OK);
+        CHECK(calls == 2U);
+    }
+    {
+        const NodeApi_ServiceRequest next_operation = {0x2222U, 7U, 10U, NULL, 0U};
+        CHECK(NodeApi_DispatchRequest(&registry, &next_operation, &response) == NODE_API_STATUS_OK);
+        CHECK(calls == 3U);
+    }
     CHECK(NodeApi_DispatchRequest(&registry, &bad_command, &response) ==
           NODE_API_STATUS_UNSUPPORTED_COMMAND);
-    CHECK(response.data_length == 0U && calls == 2U);
+    CHECK(response.data_length == 0U && calls == 4U);
     CHECK(NodeApi_DispatchRequest(&registry, &missing, &response) ==
           NODE_API_STATUS_UNSUPPORTED_SERVICE);
-    CHECK(response.status == NODE_API_STATUS_UNSUPPORTED_SERVICE && calls == 2U);
+    CHECK(response.status == NODE_API_STATUS_UNSUPPORTED_SERVICE && calls == 4U);
 
     NodeApi_RegistryInitialize(&registry);
     for (size_t index = 0U; index < NODE_API_MAX_SERVICES; ++index) {

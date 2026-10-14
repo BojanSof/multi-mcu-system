@@ -10,6 +10,7 @@
 
 #include "HostSignals.h"
 #include "HostTransport.h"
+#include "diagnostics/Diagnostics.h"
 #include "node_api/NodeCommands.h"
 #include "protocol/ProtocolFrame.h"
 #include "protocol/ProtocolTransport.h"
@@ -20,6 +21,13 @@ LOG_MODULE_REGISTER(host_node_manager, LOG_LEVEL_INF);
 #define HOST_RESPONSE_TIMEOUT_MS 500
 #define HOST_HEARTBEAT_PERIOD_MS 2000
 #define HOST_MAX_RETRIES 3U
+#define HOST_DIAGNOSTIC_STATUS_SIZE 13U
+#define HOST_DIAGNOSTIC_RECORD_SIZE 17U
+
+typedef enum {
+    HOST_DIAGNOSTIC_CODE_FRAME_REJECTED = 1U,
+    HOST_DIAGNOSTIC_CODE_REQUEST_TIMEOUT = 2U
+} HostDiagnostic_Code;
 
 typedef struct {
     Protocol_Decoder decoder;
@@ -36,9 +44,34 @@ typedef struct {
     int64_t deadline;
     uint8_t retry_count;
     bool ready;
+    Diagnostics_State diagnostics;
 } HostNodeManager_Context;
 
 static HostNodeManager_Context HostNodeManager;
+
+static void HostNodeManager_RecordDiagnostic(uint8_t severity, uint8_t domain, uint16_t code,
+                                             uint32_t correlation_id, uint32_t detail) {
+    Diagnostics_Fault fault = {
+        .timestamp_ms = (uint32_t)k_uptime_get(),
+        .correlation_id = correlation_id,
+        .detail = detail,
+        .code = code,
+        .source = DIAGNOSTICS_SOURCE_HOST,
+        .severity = severity,
+        .domain = domain,
+    };
+
+    (void)Diagnostics_RecordFault(&HostNodeManager.diagnostics, &fault);
+    HostNodeManager.status.diagnostic_records = HostNodeManager.diagnostics.total_recorded;
+    HostNodeManager.status.diagnostic_overflows = HostNodeManager.diagnostics.overflow_count;
+}
+
+static void HostNodeManager_RejectFrame(uint32_t detail) {
+    HostNodeManager.status.rejected_responses++;
+    HostNodeManager_RecordDiagnostic(DIAGNOSTICS_SEVERITY_WARNING, DIAGNOSTICS_DOMAIN_PROTOCOL,
+                                     HOST_DIAGNOSTIC_CODE_FRAME_REJECTED, HostNodeManager.sequence,
+                                     detail);
+}
 
 static uint16_t HostNodeManager_ReadU16(const uint8_t *data) {
     return (uint16_t)data[0] | ((uint16_t)data[1] << 8U);
@@ -51,6 +84,55 @@ static uint32_t HostNodeManager_ReadU32(const uint8_t *data) {
 
 static int32_t HostNodeManager_ReadI32(const uint8_t *data) {
     return (int32_t)HostNodeManager_ReadU32(data);
+}
+
+static void HostNodeManager_LogDiagnosticRecord(const uint8_t *data, size_t data_length) {
+    Diagnostics_Fault fault;
+    size_t index;
+
+    if (data_length != HOST_DIAGNOSTIC_RECORD_SIZE) {
+        HostNodeManager_RejectFrame((uint32_t)data_length);
+        return;
+    }
+    fault.timestamp_ms = HostNodeManager_ReadU32(&data[0]);
+    fault.correlation_id = HostNodeManager_ReadU32(&data[4]);
+    fault.detail = HostNodeManager_ReadU32(&data[8]);
+    fault.code = HostNodeManager_ReadU16(&data[12]);
+    fault.source = data[14];
+    fault.severity = data[15];
+    fault.domain = data[16];
+    for (index = 0U; index < HostNodeManager.diagnostics.count; ++index) {
+        const size_t record_index =
+            (HostNodeManager.diagnostics.head + index) % DIAGNOSTICS_RECORD_CAPACITY;
+        const Diagnostics_Fault *existing = &HostNodeManager.diagnostics.records[record_index];
+        if ((existing->timestamp_ms == fault.timestamp_ms) &&
+            (existing->correlation_id == fault.correlation_id) &&
+            (existing->detail == fault.detail) && (existing->code == fault.code) &&
+            (existing->source == fault.source) && (existing->severity == fault.severity) &&
+            (existing->domain == fault.domain)) {
+            return;
+        }
+    }
+    (void)Diagnostics_RecordFault(&HostNodeManager.diagnostics, &fault);
+    HostNodeManager.status.diagnostic_records = HostNodeManager.diagnostics.total_recorded;
+    HostNodeManager.status.diagnostic_overflows = HostNodeManager.diagnostics.overflow_count;
+    LOG_INF("diagnostic record: src %u severity %u domain %u code %u time %u correlation %u "
+            "detail 0x%08x",
+            fault.source, fault.severity, fault.domain, fault.code, fault.timestamp_ms,
+            fault.correlation_id, fault.detail);
+}
+
+static bool HostNodeManager_ParseDiagnosticStatus(const uint8_t *data, size_t data_length) {
+    if (data_length != HOST_DIAGNOSTIC_STATUS_SIZE) {
+        HostNodeManager_RejectFrame((uint32_t)data_length);
+        return false;
+    }
+    HostNodeManager.status.node_injection_mask = HostNodeManager_ReadU32(&data[0]);
+    HostNodeManager.status.node_diagnostic_queued = data[12];
+    LOG_INF("node diagnostics: injections 0x%08x, records %u, overflows %u, queued %u",
+            HostNodeManager.status.node_injection_mask, HostNodeManager_ReadU32(&data[4]),
+            HostNodeManager_ReadU32(&data[8]), data[12]);
+    return true;
 }
 
 static void HostNodeManager_WriteU16(uint8_t *data, uint16_t value) {
@@ -233,9 +315,27 @@ static void HostNodeManager_Advance(uint16_t message_id, const Protocol_Frame *f
         LOG_INF("service 0x%04x command 0x%04x operation %u accepted",
                 HostNodeManager.pending_service, HostNodeManager.pending_command,
                 HostNodeManager.pending_operation);
-        if (HostNodeManager.pending_service == VIRTUAL_IO_SENSOR_SERVICE_ID &&
-            HostNodeManager.pending_command == VIRTUAL_IO_SENSOR_COMMAND_SAMPLE &&
-            response_data_length == VIRTUAL_IO_SENSOR_SAMPLE_RESPONSE_SIZE) {
+        if (HostNodeManager.pending_service == NODE_API_SERVICE_DIAGNOSTICS &&
+            (HostNodeManager.pending_command == NODE_API_DIAGNOSTICS_COMMAND_GET_STATUS ||
+             HostNodeManager.pending_command == NODE_API_DIAGNOSTICS_COMMAND_ENABLE_INJECTION ||
+             HostNodeManager.pending_command == NODE_API_DIAGNOSTICS_COMMAND_DISABLE_ALL)) {
+            (void)HostNodeManager_ParseDiagnosticStatus(response_data, response_data_length);
+        } else if (HostNodeManager.pending_service == NODE_API_SERVICE_DIAGNOSTICS &&
+                   HostNodeManager.pending_command == NODE_API_DIAGNOSTICS_COMMAND_GET_RECORD) {
+            if (response_data_length == 1U && response_data[0] == 0U) {
+                LOG_INF("node diagnostic record queue empty");
+                HostNodeManager.status.node_diagnostic_queued = 0U;
+            } else if (response_data_length == 1U + HOST_DIAGNOSTIC_RECORD_SIZE &&
+                       response_data[0] == 1U) {
+                HostNodeManager_LogDiagnosticRecord(&response_data[1], HOST_DIAGNOSTIC_RECORD_SIZE);
+                /* Keep draining until the node explicitly reports an empty queue. */
+                HostNodeManager.status.node_diagnostic_queued = 1U;
+            } else {
+                HostNodeManager_RejectFrame((uint32_t)response_data_length);
+            }
+        } else if (HostNodeManager.pending_service == VIRTUAL_IO_SENSOR_SERVICE_ID &&
+                   HostNodeManager.pending_command == VIRTUAL_IO_SENSOR_COMMAND_SAMPLE &&
+                   response_data_length == VIRTUAL_IO_SENSOR_SAMPLE_RESPONSE_SIZE) {
             LOG_INF("virtual sensor sample: value %d milli-units, index %u",
                     HostNodeManager_ReadI32(response_data),
                     HostNodeManager_ReadU32(&response_data[4]));
@@ -282,8 +382,14 @@ static void HostNodeManager_EventReceived(const Protocol_Frame *frame) {
         return;
     }
 
-    if (service_id == NODE_API_SERVICE_GPIO && event_id == NODE_API_GPIO_EVENT_BUTTON_CHANGED &&
-        event_data_length == NODE_API_GPIO_BUTTON_EVENT_DATA_SIZE) {
+    if (service_id == NODE_API_SERVICE_DIAGNOSTICS &&
+        event_id == NODE_API_DIAGNOSTICS_EVENT_RECORD) {
+        HostNodeManager_LogDiagnosticRecord(event_data, event_data_length);
+        /* An event is also a notification that its durable queue record is available. */
+        HostNodeManager.status.node_diagnostic_queued = 1U;
+    } else if (service_id == NODE_API_SERVICE_GPIO &&
+               event_id == NODE_API_GPIO_EVENT_BUTTON_CHANGED &&
+               event_data_length == NODE_API_GPIO_BUTTON_EVENT_DATA_SIZE) {
         LOG_INF("node button %s (event %u)", event_data[0] != 0U ? "pressed" : "released",
                 operation_id);
     } else if (service_id == VIRTUAL_IO_ACTUATOR_SERVICE_ID &&
@@ -337,13 +443,13 @@ static void HostNodeManager_FrameReceived(const Protocol_Frame *frame, void *con
 }
 
 static void HostNodeManager_FrameError(Protocol_Status status, void *context) {
-    ARG_UNUSED(status);
     ARG_UNUSED(context);
-    HostNodeManager.status.rejected_responses++;
+    HostNodeManager_RejectFrame((uint32_t)status);
 }
 
 void HostNodeManager_Initialize(void) {
     memset(&HostNodeManager, 0, sizeof(HostNodeManager));
+    Diagnostics_Initialize(&HostNodeManager.diagnostics);
     Protocol_DecoderInitialize(&HostNodeManager.decoder);
     if (!HostTransport_IsAvailable()) {
         HostNodeManager.status.state = HOST_LINK_DISABLED;
@@ -400,12 +506,20 @@ void HostNodeManager_Process(void) {
     if (HostNodeManager.retry_count < HOST_MAX_RETRIES && HostNodeManager.pending_message != 0U) {
         HostNodeManager.retry_count++;
         HostNodeManager.status.timeouts++;
+        HostNodeManager_RecordDiagnostic(DIAGNOSTICS_SEVERITY_WARNING, DIAGNOSTICS_DOMAIN_TRANSPORT,
+                                         HOST_DIAGNOSTIC_CODE_REQUEST_TIMEOUT,
+                                         HostNodeManager.pending_operation,
+                                         HostNodeManager.pending_message);
         (void)HostNodeManager_TransmitPending(true);
         return;
     }
 
     HostNodeManager.status.state = HOST_LINK_DEGRADED;
     HostNodeManager.status.timeouts++;
+    HostNodeManager_RecordDiagnostic(DIAGNOSTICS_SEVERITY_ERROR, DIAGNOSTICS_DOMAIN_TRANSPORT,
+                                     HOST_DIAGNOSTIC_CODE_REQUEST_TIMEOUT,
+                                     HostNodeManager.pending_operation,
+                                     HostNodeManager.pending_message);
     HostNodeManager.status.session_generation = 0U;
     HostNodeManager.status.state = HOST_LINK_DISCOVERING;
     HostNodeManager.pending_message = 0U;
@@ -440,6 +554,9 @@ int HostNodeManager_CallService(uint16_t service_id, uint16_t command_id, const 
         !HostNodeManager_HasService(service_id)) {
         return -ENOTSUP;
     }
+    if (HostNodeManager.pending_message != 0U) {
+        return -EBUSY;
+    }
     if (data_length > NODE_API_SERVICE_DATA_MAX_LENGTH || (data_length != 0U && data == NULL)) {
         return -EINVAL;
     }
@@ -464,4 +581,29 @@ int HostNodeManager_CallService(uint16_t service_id, uint16_t command_id, const 
         *operation_id = next_operation;
     }
     return 0;
+}
+
+int HostNodeManager_DiagnosticsGetStatus(void) {
+    return HostNodeManager_CallService(NODE_API_SERVICE_DIAGNOSTICS,
+                                       NODE_API_DIAGNOSTICS_COMMAND_GET_STATUS, NULL, 0U, NULL);
+}
+
+int HostNodeManager_DiagnosticsEnable(uint8_t injection_id) {
+    if (injection_id < (uint8_t)DIAGNOSTICS_INJECTION_EARLY_READY ||
+        injection_id > (uint8_t)DIAGNOSTICS_INJECTION_MAX) {
+        return -EINVAL;
+    }
+    return HostNodeManager_CallService(NODE_API_SERVICE_DIAGNOSTICS,
+                                       NODE_API_DIAGNOSTICS_COMMAND_ENABLE_INJECTION, &injection_id,
+                                       sizeof(injection_id), NULL);
+}
+
+int HostNodeManager_DiagnosticsDisableAll(void) {
+    return HostNodeManager_CallService(NODE_API_SERVICE_DIAGNOSTICS,
+                                       NODE_API_DIAGNOSTICS_COMMAND_DISABLE_ALL, NULL, 0U, NULL);
+}
+
+int HostNodeManager_DiagnosticsGetRecord(void) {
+    return HostNodeManager_CallService(NODE_API_SERVICE_DIAGNOSTICS,
+                                       NODE_API_DIAGNOSTICS_COMMAND_GET_RECORD, NULL, 0U, NULL);
 }

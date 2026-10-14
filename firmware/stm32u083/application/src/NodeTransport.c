@@ -3,12 +3,15 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "AppDiagnostics.h"
 #include "node_api/NodeApi.h"
 #include "node_api/NodeCommands.h"
 #include "protocol/ProtocolFrame.h"
 #include "protocol/ProtocolTransport.h"
 #include "stm32u083_platform/PlatformSideband.h"
 #include "stm32u083_platform/PlatformTransport.h"
+#include "stm32u0xx_hal.h"
+#include "virtual_io/VirtualIo.h"
 
 #define NODE_TRANSPORT_RX_CHUNK_SIZE 32U
 #define NODE_TRANSPORT_IDENTITY "stm32u083rc-node"
@@ -23,6 +26,8 @@ typedef struct {
     uint8_t rx_chunk[NODE_TRANSPORT_RX_CHUNK_SIZE];
     uint8_t tx_encoded[PROTOCOL_MAX_ENCODED_FRAME];
     bool clear_irq_pending;
+    bool drop_current_response;
+    bool apply_current_injection;
 } NodeTransport_Context;
 
 static NodeTransport_Context NodeTransport_Instance;
@@ -55,12 +60,17 @@ static void NodeTransport_SetPrefix(Protocol_Frame *response, uint16_t message_i
     response->payload_length = NODE_API_REQUEST_PREFIX_SIZE;
 }
 
-static bool NodeTransport_Send(NodeTransport_Context *context, Protocol_Frame *response) {
+static bool NodeTransport_Send(NodeTransport_Context *context, Protocol_Frame *response,
+                               bool apply_injection) {
     size_t encoded_length = 0U;
     if (Protocol_EncodeFrame(response, context->tx_encoded, sizeof(context->tx_encoded),
                              &encoded_length) != PROTOCOL_STATUS_OK) {
         ++context->state->rejected_requests;
         return false;
+    }
+    if (apply_injection) {
+        AppDiagnostics_DelayResponse();
+        AppDiagnostics_PrepareOutgoing(context->tx_encoded, &encoded_length);
     }
     if (PlatformTransport_Write(context->tx_encoded, encoded_length) != PLATFORM_STATUS_OK) {
         ++context->state->rejected_requests;
@@ -77,7 +87,7 @@ static void NodeTransport_SendError(NodeTransport_Context *context, uint16_t seq
     response.sequence = sequence;
     NodeTransport_SetPrefix(&response, message_id, context->state->session_generation);
     response.payload[response.payload_length++] = (uint8_t)status;
-    (void)NodeTransport_Send(context, &response);
+    (void)NodeTransport_Send(context, &response, true);
 }
 
 static void NodeTransport_WriteServiceHeader(Protocol_Frame *response, uint16_t service_id,
@@ -162,6 +172,13 @@ static bool NodeTransport_HandleServiceCall(NodeTransport_Context *context,
     memcpy(&response->payload[response->payload_length], service_response.data,
            service_response.data_length);
     response->payload_length += (uint16_t)service_response.data_length;
+    if ((service_request.service_id == VIRTUAL_IO_ACTUATOR_SERVICE_ID) &&
+        (service_request.command_id == VIRTUAL_IO_ACTUATOR_COMMAND_START)) {
+        AppDiagnostics_RecordOutputOrdering(service_request.operation_id);
+    }
+    context->drop_current_response = AppDiagnostics_ShouldDropAcceptance(
+        service_request.service_id, service_request.command_id, service_request.operation_id);
+    context->apply_current_injection = service_request.service_id != NODE_API_SERVICE_DIAGNOSTICS;
     return true;
 }
 
@@ -190,6 +207,7 @@ static void NodeTransport_HandleRequest(const Protocol_Frame *request, void *opa
 
     response.kind = PROTOCOL_FRAME_RESPONSE;
     response.sequence = request->sequence;
+    context->apply_current_injection = false;
     NodeTransport_SetPrefix(&response, message_id, context->state->session_generation);
 
     switch (message_id) {
@@ -268,7 +286,11 @@ static void NodeTransport_HandleRequest(const Protocol_Frame *request, void *opa
     }
 
     ++context->state->accepted_requests;
-    (void)NodeTransport_Send(context, &response);
+    if (context->drop_current_response) {
+        context->drop_current_response = false;
+        return;
+    }
+    (void)NodeTransport_Send(context, &response, context->apply_current_injection);
 }
 
 static void NodeTransport_HandleDecodeError(Protocol_Status status, void *opaque) {
@@ -290,6 +312,10 @@ void NodeTransport_Initialize(NodeTransport_State *state, uint32_t session_gener
     NodeTransport_Instance.registry = registry;
     Protocol_DecoderInitialize(&NodeTransport_Instance.decoder);
     PlatformSideband_Initialize();
+#if defined(MULTI_MCU_EARLY_READY_BOOT_DEMO)
+    PlatformSideband_SetReady(true);
+    HAL_Delay(50U);
+#endif
     (void)PlatformTransport_Initialize();
     PlatformSideband_SetReady(PlatformTransport_IsEnabled() != 0);
 }
@@ -332,11 +358,15 @@ NodeApi_Status NodeTransport_PublishServiceEvent(uint16_t service_id, uint16_t e
     }
     event.payload_length += (uint16_t)data_length;
     PlatformSideband_SetIrqPending(true);
-    NodeTransport_Instance.clear_irq_pending = true;
-    if (!NodeTransport_Send(&NodeTransport_Instance, &event)) {
+    NodeTransport_Instance.clear_irq_pending =
+        !AppDiagnostics_IsInjectionEnabled(DIAGNOSTICS_INJECTION_SHORT_IRQ);
+    if (!NodeTransport_Send(&NodeTransport_Instance, &event, false)) {
         PlatformSideband_SetIrqPending(false);
         NodeTransport_Instance.clear_irq_pending = false;
         return NODE_API_STATUS_BUSY;
+    }
+    if (AppDiagnostics_IsInjectionEnabled(DIAGNOSTICS_INJECTION_SHORT_IRQ)) {
+        PlatformSideband_SetIrqPending(false);
     }
     return NODE_API_STATUS_OK;
 }

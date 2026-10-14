@@ -1,5 +1,7 @@
 #include "AppRtos.h"
 
+#include <stdio.h>
+
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -15,6 +17,7 @@
 #define APP_HEARTBEAT_INTERVAL_MS 500U
 #define APP_HEARTBEAT_POLLS (APP_HEARTBEAT_INTERVAL_MS / APP_POLL_INTERVAL_MS)
 #define APP_LOG_HEARTBEAT_COUNT 4U
+#define APP_TASK_STALL_MS 1500U
 
 static StaticTask_t AppRtos_TaskControl;
 static StackType_t AppRtos_TaskStack[APP_TASK_STACK_WORDS];
@@ -24,6 +27,7 @@ static NodeTransport_State AppRtos_NodeTransport;
 static AppServices_State AppRtos_Services;
 
 static void AppRtos_BringupTask(void *context) {
+    char log_line[128];
     bool previous_button = false;
     uint32_t heartbeat_polls = 0U;
     uint32_t heartbeat_count = 0U;
@@ -35,10 +39,20 @@ static void AppRtos_BringupTask(void *context) {
         }
     }
     NodeTransport_Initialize(&AppRtos_NodeTransport, seed, &AppRtos_Services.registry);
-    (void)PlatformLog_Write("stm32: phase-3 node ready, personality ",
-                            sizeof("stm32: phase-3 node ready, personality ") - 1U);
-    (void)PlatformLog_Write(AppServices_GetPersonalityName(), 1U);
-    (void)PlatformLog_Write("\r\n", 2U);
+    const int startup_length = snprintf(
+        log_line, sizeof(log_line),
+        "stm32: fw %s phase-4 %s personality %s session %lu uptime %lu ms\r\n",
+        MULTI_MCU_FIRMWARE_VERSION,
+#if defined(MULTI_MCU_DEV_FAULTS)
+        "debug",
+#else
+        "release",
+#endif
+        AppServices_GetPersonalityName(), (unsigned long)AppRtos_NodeTransport.session_generation,
+        (unsigned long)HAL_GetTick());
+    if ((startup_length > 0) && ((size_t)startup_length < sizeof(log_line))) {
+        (void)PlatformLog_Write(log_line, (size_t)startup_length);
+    }
 
     for (;;) {
         const bool button = PlatformBoard_IsButtonPressed();
@@ -52,6 +66,13 @@ static void AppRtos_BringupTask(void *context) {
         }
         previous_button = button;
         (void)AppServices_Tick(&AppRtos_Services, HAL_GetTick());
+        AppDiagnostics_ProcessEvents();
+
+        if (AppDiagnostics_ConsumeTaskStall()) {
+            (void)PlatformLog_Write("stm32: bounded task stall injection\r\n",
+                                    sizeof("stm32: bounded task stall injection\r\n") - 1U);
+            vTaskDelay(pdMS_TO_TICKS(APP_TASK_STALL_MS));
+        }
 
         ++heartbeat_polls;
         if (heartbeat_polls >= APP_HEARTBEAT_POLLS) {
@@ -60,8 +81,15 @@ static void AppRtos_BringupTask(void *context) {
             ++heartbeat_count;
             if (heartbeat_count >= APP_LOG_HEARTBEAT_COUNT) {
                 heartbeat_count = 0U;
-                (void)PlatformLog_Write("stm32: phase-3 heartbeat\r\n",
-                                        sizeof("stm32: phase-3 heartbeat\r\n") - 1U);
+                const int heartbeat_length =
+                    snprintf(log_line, sizeof(log_line),
+                             "stm32: fw %s session %lu uptime %lu ms heartbeat\r\n",
+                             MULTI_MCU_FIRMWARE_VERSION,
+                             (unsigned long)AppRtos_NodeTransport.session_generation,
+                             (unsigned long)HAL_GetTick());
+                if ((heartbeat_length > 0) && ((size_t)heartbeat_length < sizeof(log_line))) {
+                    (void)PlatformLog_Write(log_line, (size_t)heartbeat_length);
+                }
             }
         }
 

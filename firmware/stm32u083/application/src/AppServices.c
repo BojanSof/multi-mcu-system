@@ -49,6 +49,10 @@ NodeApi_Status AppServices_Initialize(AppServices_State *state, uint32_t seed) {
         return status;
     }
     VirtualIo_Initialize(&state->virtual_io, seed, AppServices_VirtualEventSink, state);
+    status = AppDiagnostics_Initialize(&state->diagnostics, &state->registry, &state->virtual_io);
+    if (status != NODE_API_STATUS_OK) {
+        return status;
+    }
 #if defined(MULTI_MCU_PERSONALITY_B)
     return VirtualIo_RegisterServices(&state->virtual_io, &state->registry,
                                       VIRTUAL_IO_PERSONALITY_B);
@@ -62,6 +66,9 @@ NodeApi_Status AppServices_Tick(AppServices_State *state, uint32_t now_ms) {
     if (state == NULL) {
         return NODE_API_STATUS_INVALID_ARGUMENT;
     }
+    VirtualIo_SetEarlyOutputInjection(
+        &state->virtual_io,
+        AppDiagnostics_IsInjectionEnabled(DIAGNOSTICS_INJECTION_EARLY_VIRTUAL_OUTPUT));
     return VirtualIo_Tick(&state->virtual_io, now_ms);
 }
 

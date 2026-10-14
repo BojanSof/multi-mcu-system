@@ -4,11 +4,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "AppDiagnostics.h"
 #include "node_api/NodeServices.h"
 #include "virtual_io/VirtualIo.h"
 
 typedef struct {
     NodeApi_Registry registry;
+    AppDiagnostics_State diagnostics;
     VirtualIo_Instance virtual_io;
     uint32_t button_event_counter;
 } AppServices_State;

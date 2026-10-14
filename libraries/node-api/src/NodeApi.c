@@ -62,6 +62,15 @@ NodeApi_Status NodeApi_DispatchRequest(NodeApi_Registry *registry,
         (request->data_length > NODE_API_SERVICE_DATA_MAX_LENGTH)) {
         return NODE_API_STATUS_INVALID_ARGUMENT;
     }
+    if (registry->replay_valid && (request->service_id == registry->replay_service_id) &&
+        (request->command_id == registry->replay_command_id) &&
+        (request->operation_id == registry->replay_operation_id) &&
+        (request->data_length == registry->replay_request_data_length) &&
+        ((request->data_length == 0U) ||
+         (memcmp(request->data, registry->replay_request_data, request->data_length) == 0))) {
+        *response = registry->replay_response;
+        return response->status;
+    }
     for (index = 0U; index < registry->service_count; ++index) {
         if (registry->services[index].descriptor.service_id == request->service_id) {
             const NodeApi_Status status = registry->services[index].handler(
@@ -72,6 +81,18 @@ NodeApi_Status NodeApi_DispatchRequest(NodeApi_Registry *registry,
                 return NODE_API_STATUS_CAPACITY_EXCEEDED;
             }
             response->status = status;
+            if (status == NODE_API_STATUS_OK) {
+                registry->replay_service_id = request->service_id;
+                registry->replay_command_id = request->command_id;
+                registry->replay_operation_id = request->operation_id;
+                registry->replay_request_data_length = request->data_length;
+                if (request->data_length != 0U) {
+                    (void)memcpy(registry->replay_request_data, request->data,
+                                 request->data_length);
+                }
+                registry->replay_response = *response;
+                registry->replay_valid = true;
+            }
             return status;
         }
     }

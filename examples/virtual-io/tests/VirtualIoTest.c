@@ -71,8 +71,7 @@ static int Test_ActuatorIdempotencyAndEvents(void) {
     const NodeApi_ServiceRequest other = {VIRTUAL_IO_ACTUATOR_SERVICE_ID,
                                           VIRTUAL_IO_ACTUATOR_COMMAND_START, 43U, duration,
                                           sizeof(duration)};
-    const NodeApi_ServiceRequest unsupported = {VIRTUAL_IO_ACTUATOR_SERVICE_ID, 99U, 44U, NULL,
-                                                0U};
+    const NodeApi_ServiceRequest unsupported = {VIRTUAL_IO_ACTUATOR_SERVICE_ID, 99U, 44U, NULL, 0U};
 
     NodeApi_RegistryInitialize(&registry);
     VirtualIo_Initialize(&instance, 7U, Test_EventSink, &events);
@@ -102,8 +101,59 @@ static int Test_ActuatorIdempotencyAndEvents(void) {
     return 0;
 }
 
+static int Test_OutputOrderingRegression(void) {
+    NodeApi_Registry fixed_registry;
+    NodeApi_Registry buggy_registry;
+    VirtualIo_Instance fixed;
+    VirtualIo_Instance buggy;
+    VirtualIo_OutputState fixed_state;
+    VirtualIo_OutputState buggy_state;
+    VirtualIo_OutputState duplicate_state;
+    NodeApi_ServiceResponse response;
+    const uint8_t duration[4] = {0xE8U, 0x03U, 0x00U, 0x00U};
+    const NodeApi_ServiceRequest fixed_start = {VIRTUAL_IO_ACTUATOR_SERVICE_ID,
+                                                VIRTUAL_IO_ACTUATOR_COMMAND_START, 100U, duration,
+                                                sizeof(duration)};
+    const NodeApi_ServiceRequest buggy_start = {VIRTUAL_IO_ACTUATOR_SERVICE_ID,
+                                                VIRTUAL_IO_ACTUATOR_COMMAND_START, 200U, duration,
+                                                sizeof(duration)};
+
+    NodeApi_RegistryInitialize(&fixed_registry);
+    VirtualIo_Initialize(&fixed, 1U, NULL, NULL);
+    CHECK(VirtualIo_RegisterServices(&fixed, &fixed_registry, VIRTUAL_IO_PERSONALITY_B) ==
+          NODE_API_STATUS_OK);
+    VirtualIo_SetEarlyOutputInjection(&fixed, false);
+    CHECK(NodeApi_DispatchRequest(&fixed_registry, &fixed_start, &response) == NODE_API_STATUS_OK);
+    CHECK(VirtualIo_GetOutputState(&fixed, &fixed_state) == NODE_API_STATUS_OK);
+    CHECK(fixed_state.prerequisite_ready && fixed_state.output_enabled);
+    CHECK(fixed_state.prerequisite_order < fixed_state.output_enable_order);
+    CHECK(fixed_state.ordering_violation_count == 0U);
+    CHECK(fixed_state.last_operation_id == 100U);
+
+    /* A retry is acceptance replay, not a second modeled output transition. */
+    CHECK(NodeApi_DispatchRequest(&fixed_registry, &fixed_start, &response) == NODE_API_STATUS_OK);
+    CHECK(VirtualIo_GetOutputState(&fixed, &duplicate_state) == NODE_API_STATUS_OK);
+    CHECK(duplicate_state.transition_count == fixed_state.transition_count);
+    CHECK(duplicate_state.ordering_violation_count == 0U);
+
+    NodeApi_RegistryInitialize(&buggy_registry);
+    VirtualIo_Initialize(&buggy, 1U, NULL, NULL);
+    CHECK(VirtualIo_RegisterServices(&buggy, &buggy_registry, VIRTUAL_IO_PERSONALITY_B) ==
+          NODE_API_STATUS_OK);
+    VirtualIo_SetEarlyOutputInjection(&buggy, true);
+    CHECK(NodeApi_DispatchRequest(&buggy_registry, &buggy_start, &response) == NODE_API_STATUS_OK);
+    CHECK(VirtualIo_GetOutputState(&buggy, &buggy_state) == NODE_API_STATUS_OK);
+    CHECK(buggy_state.early_output_injection_enabled);
+    CHECK(buggy_state.prerequisite_ready && buggy_state.output_enabled);
+    CHECK(buggy_state.output_enable_order < buggy_state.prerequisite_order);
+    CHECK(buggy_state.ordering_violation_count == 1U);
+    CHECK(buggy_state.last_operation_id == 200U);
+    return 0;
+}
+
 int main(void) {
     CHECK(Test_PersonalitiesAndSensor() == 0);
     CHECK(Test_ActuatorIdempotencyAndEvents() == 0);
+    CHECK(Test_OutputOrderingRegression() == 0);
     return 0;
 }

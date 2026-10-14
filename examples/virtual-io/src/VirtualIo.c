@@ -59,6 +59,37 @@ static void VirtualIo_RememberOperation(VirtualIo_Instance *instance, uint32_t o
     }
 }
 
+static void VirtualIo_EstablishPrerequisite(VirtualIo_Instance *instance) {
+    ++instance->output_state.transition_count;
+    instance->output_state.prerequisite_order = instance->output_state.transition_count;
+    instance->output_state.prerequisite_ready = true;
+}
+
+static void VirtualIo_EnableOutput(VirtualIo_Instance *instance) {
+    ++instance->output_state.transition_count;
+    instance->output_state.output_enable_order = instance->output_state.transition_count;
+    instance->output_state.output_enabled = true;
+    if (!instance->output_state.prerequisite_ready) {
+        ++instance->output_state.ordering_violation_count;
+    }
+}
+
+static void VirtualIo_StartModeledOutput(VirtualIo_Instance *instance, uint32_t operation_id) {
+    instance->output_state.prerequisite_ready = false;
+    instance->output_state.output_enabled = false;
+    instance->output_state.prerequisite_order = 0U;
+    instance->output_state.output_enable_order = 0U;
+    instance->output_state.last_operation_id = operation_id;
+    if (instance->output_state.early_output_injection_enabled) {
+        /* Intentional, deterministic buggy path for the diagnostics exercise. */
+        VirtualIo_EnableOutput(instance);
+        VirtualIo_EstablishPrerequisite(instance);
+    } else {
+        VirtualIo_EstablishPrerequisite(instance);
+        VirtualIo_EnableOutput(instance);
+    }
+}
+
 static NodeApi_Status VirtualIo_ActuatorHandler(void *context,
                                                 const NodeApi_ServiceRequest *request,
                                                 NodeApi_ServiceResponse *response) {
@@ -93,6 +124,7 @@ static NodeApi_Status VirtualIo_ActuatorHandler(void *context,
     instance->active_started_ms = 0U;
     instance->next_progress_step = 1U;
     instance->start_time_initialized = false;
+    VirtualIo_StartModeledOutput(instance, request->operation_id);
     VirtualIo_RememberOperation(instance, request->operation_id, instance->execution_count);
     VirtualIo_WriteU32(response->data, instance->execution_count);
     response->data_length = VIRTUAL_IO_ACTUATOR_START_RESPONSE_SIZE;
@@ -192,10 +224,27 @@ NodeApi_Status VirtualIo_Tick(VirtualIo_Instance *instance, uint32_t now_ms) {
             return status;
         }
         instance->active = false;
+        instance->output_state.output_enabled = false;
+        instance->output_state.prerequisite_ready = false;
     }
     return NODE_API_STATUS_OK;
 }
 
 uint32_t VirtualIo_GetExecutionCount(const VirtualIo_Instance *instance) {
     return (instance != NULL) ? instance->execution_count : 0U;
+}
+
+void VirtualIo_SetEarlyOutputInjection(VirtualIo_Instance *instance, bool enabled) {
+    if (instance != NULL) {
+        instance->output_state.early_output_injection_enabled = enabled;
+    }
+}
+
+NodeApi_Status VirtualIo_GetOutputState(const VirtualIo_Instance *instance,
+                                        VirtualIo_OutputState *state) {
+    if ((instance == NULL) || (state == NULL)) {
+        return NODE_API_STATUS_INVALID_ARGUMENT;
+    }
+    *state = instance->output_state;
+    return NODE_API_STATUS_OK;
 }

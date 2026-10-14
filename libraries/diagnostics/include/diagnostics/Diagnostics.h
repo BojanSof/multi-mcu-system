@@ -1,13 +1,9 @@
 #ifndef DIAGNOSTICS_DIAGNOSTICS_H
 #define DIAGNOSTICS_DIAGNOSTICS_H
 
-#include <stdint.h>
+#define DIAGNOSTICS_API_VERSION_MAJOR 1U
+#define DIAGNOSTICS_API_VERSION_MINOR 0U
 
-typedef struct {
-    uint32_t fault_count;
-} Diagnostics_State;
-
-void Diagnostics_Initialize(Diagnostics_State *state);
-void Diagnostics_RecordFault(Diagnostics_State *state);
+#include "diagnostics/DiagnosticsBuffer.h"
 
 #endif

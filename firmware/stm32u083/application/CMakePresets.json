@@ -32,6 +32,27 @@
       "cacheVariables": {
         "MULTI_MCU_STM32_PERSONALITY": "B"
       }
+    },
+    {
+      "name": "debug-early-ready",
+      "displayName": "NUCLEO-U083RC analyzer lesson (early READY)",
+      "inherits": "debug-base",
+      "binaryDir": "${sourceDir}/build/debug-early-ready",
+      "cacheVariables": {
+        "MULTI_MCU_STM32_PERSONALITY": "B",
+        "MULTI_MCU_EARLY_READY_BOOT_DEMO": "ON"
+      }
+    },
+    {
+      "name": "release-personality-b",
+      "displayName": "NUCLEO-U083RC application (Release, faults excluded)",
+      "inherits": "debug-base",
+      "binaryDir": "${sourceDir}/build/release-personality-b",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MULTI_MCU_STM32_PERSONALITY": "B",
+        "MULTI_MCU_ENABLE_DEV_FAULTS": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -42,6 +63,14 @@
     {
       "name": "debug-personality-b",
       "configurePreset": "debug-personality-b"
+    },
+    {
+      "name": "debug-early-ready",
+      "configurePreset": "debug-early-ready"
+    },
+    {
+      "name": "release-personality-b",
+      "configurePreset": "release-personality-b"
     }
   ]
 }

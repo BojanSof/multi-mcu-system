@@ -3,7 +3,8 @@
 Reusable dual-MCU engineering demonstration for an nRF54L15-DK host and NUCLEO-U083RC node.
 Phase 1 establishes independent build boundaries. Phase 2 adds the bounded COBS/CRC32 UART
 protocol, node discovery, READY and active-low IRQ sidebands. Phase 3 adds a portable service
-registry and a removable deterministic virtual-I/O demonstration.
+registry and a removable deterministic virtual-I/O demonstration. Phase 4 adds bounded structured
+diagnostics, development-only fault exercises and correlated log/trace tooling.
 
 ## Local setup
 
@@ -160,3 +161,19 @@ sample. On personality B, it starts a two-second virtual actuator operation; the
 shows acceptance followed separately by 25%, 50%, 75%, and completion events. Pressing the STM
 button produces pressed/released GPIO events in both logs. These integer-valued services are
 software simulations and do not represent physical sensing, voltage, power, or motion.
+
+## Phase 4 diagnostics exercises
+
+The normal Debug presets include volatile development fault controls; all injections boot off.
+Short Nordic button presses retain the service demo, while presses held for at least 1.5 seconds
+cycle fault IDs `OFF -> 1 .. 8 -> OFF`. Build the explicit early-READY analyzer profile with:
+
+```sh
+source ./.env.local
+cmake --preset debug-early-ready -S firmware/stm32u083/application
+cmake --build firmware/stm32u083/application/build/debug-early-ready --parallel
+```
+
+Read [the fault-injection guide](docs/FAULT_INJECTION.md) before enabling a case and use
+[the analyzer tutorials](hardware/LOGIC_ANALYZER.md) for exact CH0/CH1/CH2 connections and expected
+evidence. Python-generated traces are always labeled `SIMULATED`; no analyzer is required.

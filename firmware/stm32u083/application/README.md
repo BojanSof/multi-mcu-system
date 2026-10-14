@@ -32,13 +32,19 @@ flashing a different personality. The preset exports `build/debug/compile_comman
 editors. See the root README for the clangd cross-compiler query setting. After a successful build,
 inspect the ELF/map before any flash action. With exactly one Nucleo attached, flash and verify it:
 
+Debug builds enable the development-only diagnostics injection commands. Configure with
+`-DMULTI_MCU_ENABLE_DEV_FAULTS=OFF` to remove runtime injection, which is also the default for
+non-Debug builds. The analyzer-only early-READY bug must be selected explicitly with
+`-DMULTI_MCU_EARLY_READY_BOOT_DEMO=ON`; CMake rejects that option when development faults are off.
+All runtime injection state is cleared by reset.
+
 ```sh
 STM32_Programmer_CLI -c port=SWD \
   -w firmware/stm32u083/application/build/debug/multi_mcu_stm32_application.elf \
   -v -rst
 ```
 
-Expected standalone evidence is `stm32: phase-3 node ready, personality A` (or `B`), an LD4
+Expected standalone evidence is `stm32: phase-4 node ready, personality A` (or `B`), an LD4
 transition every 500 ms, a heartbeat log every two seconds, and a log for each button press and
 release. The button does not alter LD4; with a connected host it publishes a generic GPIO service
 event. For the two-board test, first complete `hardware/PINOUT.md`'s voltage gate, power both
