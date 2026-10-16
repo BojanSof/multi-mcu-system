@@ -44,8 +44,27 @@ STM32_Programmer_CLI -c port=SWD \
   -v -rst
 ```
 
-Expected standalone evidence is `stm32: phase-4 node ready, personality A` (or `B`), an LD4
+Expected standalone evidence is `stm32: phase-5 node ready, personality A` (or `B`), an LD4
 transition every 500 ms, a heartbeat log every two seconds, and a log for each button press and
 release. The button does not alter LD4; with a connected host it publishes a generic GPIO service
 event. For the two-board test, first complete `hardware/PINOUT.md`'s voltage gate, power both
 boards off, and follow `hardware/WIRING.md`. Do not connect power rails, RESET, or BOOT0.
+
+## Phase 5 supervision
+
+The lifecycle traverses INIT, READY and ONLINE during startup. It keeps heartbeat, diagnostics and
+lifecycle control available in maintenance and software-only shutdown, while virtual sensor and
+actuator calls return `BUSY`. Shutdown only quiesces simulated services; it never claims physical
+power removal. READY pulses low for one 20 ms application poll during each enter/exit transition,
+then returns high so the host can rediscover and issue EXIT.
+
+The IWDG is nominally 4.096 seconds at the 32 kHz LSI clock (at least about 2.6 seconds over the
+documented oscillator tolerance). A separate static FreeRTOS monitor refreshes it only after the
+application progress counter advances. Development fault 8 stalls progress for six seconds and is
+therefore expected to reset the node. The startup line and lifecycle status report the normalized
+reset cause and a checksum-protected boot count retained in a `.noinit` SRAM record. Removing power
+invalidates that volatile history; it is not persistent flash metadata.
+
+Preset `debug-incompatible-service` is the development-only compatibility negative test. It
+advertises only the virtual-sensor service with an intentionally unsupported major version. The
+host must keep the node and its other services online while treating that sensor as unavailable.

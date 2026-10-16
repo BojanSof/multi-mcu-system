@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "AppDiagnostics.h"
+#include "AppServices.h"
 #include "node_api/NodeApi.h"
 #include "node_api/NodeCommands.h"
 #include "protocol/ProtocolFrame.h"
@@ -132,6 +133,7 @@ static bool NodeTransport_HandleListServices(NodeTransport_Context *context,
         NodeTransport_WriteU16(&response->payload[response->payload_length], descriptor->flags);
         response->payload_length += 2U;
     }
+    AppServices_MarkOnline();
     return true;
 }
 
@@ -154,6 +156,13 @@ static bool NodeTransport_HandleServiceCall(NodeTransport_Context *context,
     service_request.operation_id = NodeTransport_ReadU32(&request->payload[call_offset + 4U]);
     service_request.data = &request->payload[data_offset];
     service_request.data_length = (size_t)request->payload_length - data_offset;
+    if (AppServices_IsQuiescentActive() &&
+        ((service_request.service_id == VIRTUAL_IO_SENSOR_SERVICE_ID) ||
+         (service_request.service_id == VIRTUAL_IO_ACTUATOR_SERVICE_ID))) {
+        NodeTransport_SendError(context, request->sequence, NODE_API_MESSAGE_SERVICE_CALL,
+                                NODE_API_STATUS_BUSY);
+        return false;
+    }
     status = NodeApi_DispatchRequest(context->registry, &service_request, &service_response);
     if (status != NODE_API_STATUS_OK) {
         NodeTransport_SendError(context, request->sequence, NODE_API_MESSAGE_SERVICE_CALL, status);
@@ -250,6 +259,7 @@ static void NodeTransport_HandleRequest(const Protocol_Frame *request, void *opa
         NodeTransport_WriteU32(
             &response.payload[response.payload_length],
             NODE_API_CAPABILITY_IDENTITY | NODE_API_CAPABILITY_HEARTBEAT |
+                NODE_API_CAPABILITY_LIFECYCLE | NODE_API_CAPABILITY_RESET_REASON |
                 (PlatformSideband_IsEnabled() ? NODE_API_CAPABILITY_ASYNC_EVENT_IRQ : 0U));
         response.payload_length += 4U;
         break;

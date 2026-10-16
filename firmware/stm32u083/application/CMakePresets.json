@@ -44,6 +44,16 @@
       }
     },
     {
+      "name": "debug-incompatible-service",
+      "displayName": "NUCLEO-U083RC compatibility rejection demo",
+      "inherits": "debug-base",
+      "binaryDir": "${sourceDir}/build/debug-incompatible-service",
+      "cacheVariables": {
+        "MULTI_MCU_STM32_PERSONALITY": "B",
+        "MULTI_MCU_INCOMPATIBLE_SENSOR_DEMO": "ON"
+      }
+    },
+    {
       "name": "release-personality-b",
       "displayName": "NUCLEO-U083RC application (Release, faults excluded)",
       "inherits": "debug-base",
@@ -67,6 +77,10 @@
     {
       "name": "debug-early-ready",
       "configurePreset": "debug-early-ready"
+    },
+    {
+      "name": "debug-incompatible-service",
+      "configurePreset": "debug-incompatible-service"
     },
     {
       "name": "release-personality-b",

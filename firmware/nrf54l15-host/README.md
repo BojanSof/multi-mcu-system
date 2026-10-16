@@ -1,6 +1,6 @@
 # nRF54L15 host firmware
 
-This independent Zephyr application contains the Phase 4 host link for the
+This independent Zephyr application contains the Phase 5 host link for the
 nRF54L15-DK application core. It retains the onboard LED/button bring-up and
 the independent debug console on `uart20`. A separate interrupt-driven
 `uart21` transport uses fixed 1024-byte RX/TX rings and feeds the portable
@@ -34,6 +34,15 @@ Flashing is a separate, explicit hardware step. With exactly one DK attached
 and its debug probe visible, run `west flash -d build/nrf54l15-host`. Expected
 standalone evidence is a 500 ms LED toggle, a log count increment for each
 onboard button press, and `discovering` state with no application-UART traffic while READY is low.
+
+## Phase 5 controls
+
+With both boards online, a short Nordic button press starts the virtual-I/O demo. Hold for 1.5-5
+seconds to cycle development fault injection, 5-8 seconds to toggle maintenance, or at least 8
+seconds to toggle software-only shutdown. Maintenance and shutdown leave management communication
+available and do not control physical power. Three unexpected node reboots within 30 seconds latch
+the host fault; restart the Nordic host deliberately to clear it. Physical remote STM reset remains
+disabled because RESET is not part of the approved wiring.
 With a
 safely wired compatible node, the log progresses through `discovering`,
 `identity`, `capabilities`, `services`, and `online`, then sends a heartbeat

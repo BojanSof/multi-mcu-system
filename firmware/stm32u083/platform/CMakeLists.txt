@@ -6,6 +6,7 @@ target_sources(stm32u083_platform INTERFACE
     "${CMAKE_CURRENT_LIST_DIR}/src/PlatformDebug.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/PlatformLog.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/PlatformSideband.c"
+    "${CMAKE_CURRENT_LIST_DIR}/src/PlatformSupervision.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/PlatformTransport.c")
 target_include_directories(stm32u083_platform INTERFACE include)
 target_compile_features(stm32u083_platform INTERFACE c_std_11)
@@ -18,6 +19,7 @@ target_link_libraries(stm32u083_platform INTERFACE
     HAL::STM32::U0::CORTEX
     HAL::STM32::U0::FLASH
     HAL::STM32::U0::GPIO
+    HAL::STM32::U0::IWDG
     HAL::STM32::U0::PWR
     HAL::STM32::U0::PWREx
     HAL::STM32::U0::RCC

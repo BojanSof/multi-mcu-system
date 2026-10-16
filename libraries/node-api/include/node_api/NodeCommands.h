@@ -30,7 +30,9 @@ typedef enum {
 typedef enum {
     NODE_API_CAPABILITY_IDENTITY = (1UL << 0),
     NODE_API_CAPABILITY_HEARTBEAT = (1UL << 1),
-    NODE_API_CAPABILITY_ASYNC_EVENT_IRQ = (1UL << 2)
+    NODE_API_CAPABILITY_ASYNC_EVENT_IRQ = (1UL << 2),
+    NODE_API_CAPABILITY_LIFECYCLE = (1UL << 3),
+    NODE_API_CAPABILITY_RESET_REASON = (1UL << 4)
 } NodeApi_Capability;
 
 typedef enum {

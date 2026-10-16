@@ -22,11 +22,16 @@ option(MULTI_MCU_ENABLE_DEV_FAULTS "Enable development-only runtime fault inject
        ${MULTI_MCU_DEV_FAULTS_DEFAULT})
 option(MULTI_MCU_EARLY_READY_BOOT_DEMO
        "Intentionally assert READY before UART init (development analyzer lesson)" OFF)
+option(MULTI_MCU_INCOMPATIBLE_SENSOR_DEMO
+       "Advertise an incompatible virtual-sensor major for compatibility testing" OFF)
 if(MULTI_MCU_ENABLE_DEV_FAULTS AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     message(FATAL_ERROR "Development fault injection is permitted only in Debug builds")
 endif()
 if(MULTI_MCU_EARLY_READY_BOOT_DEMO AND NOT MULTI_MCU_ENABLE_DEV_FAULTS)
     message(FATAL_ERROR "EARLY_READY boot demo requires development fault injection")
+endif()
+if(MULTI_MCU_INCOMPATIBLE_SENSOR_DEMO AND NOT MULTI_MCU_ENABLE_DEV_FAULTS)
+    message(FATAL_ERROR "Incompatible-service demo requires development fault injection")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/Dependencies.cmake")
@@ -51,6 +56,7 @@ add_executable(multi_mcu_stm32_application
     src/main.c
     src/AppRtos.c
     src/AppDiagnostics.c
+    src/AppLifecycle.c
     src/AppServices.c
     src/NodeTransport.c
     src/Stm32Interrupts.c)
@@ -66,6 +72,10 @@ endif()
 if(MULTI_MCU_EARLY_READY_BOOT_DEMO)
     target_compile_definitions(multi_mcu_stm32_application PRIVATE
         MULTI_MCU_EARLY_READY_BOOT_DEMO=1)
+endif()
+if(MULTI_MCU_INCOMPATIBLE_SENSOR_DEMO)
+    target_compile_definitions(multi_mcu_stm32_application PRIVATE
+        MULTI_MCU_INCOMPATIBLE_SENSOR_DEMO=1)
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/Stm32Targets.cmake")

@@ -31,6 +31,7 @@ void AppDiagnostics_PrepareOutgoing(uint8_t *encoded, size_t *encoded_length);
 void AppDiagnostics_DelayResponse(void);
 bool AppDiagnostics_ConsumeTaskStall(void);
 void AppDiagnostics_RecordOutputOrdering(uint32_t operation_id);
+void AppDiagnostics_RecordReset(uint8_t reset_reason, uint16_t raw_reset_flags);
 void AppDiagnostics_ProcessEvents(void);
 
 #endif

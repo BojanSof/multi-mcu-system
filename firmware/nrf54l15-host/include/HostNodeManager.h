@@ -15,7 +15,8 @@ typedef enum {
     HOST_LINK_CAPABILITIES,
     HOST_LINK_SERVICES,
     HOST_LINK_ONLINE,
-    HOST_LINK_DEGRADED
+    HOST_LINK_DEGRADED,
+    HOST_LINK_FAULT_LATCHED
 } HostLink_State;
 
 typedef struct {
@@ -23,6 +24,9 @@ typedef struct {
     uint32_t session_generation;
     uint32_t capabilities;
     uint32_t timeouts;
+    uint32_t ready_losses;
+    uint32_t session_changes;
+    uint32_t node_reboots;
     uint32_t rejected_responses;
     uint32_t received_events;
     uint32_t diagnostic_records;
@@ -33,6 +37,19 @@ typedef struct {
     size_t service_count;
     NodeApi_ServiceDescriptor services[NODE_API_MAX_SERVICES];
     char identity[33];
+    NodeApi_LifecycleState node_lifecycle_state;
+    NodeApi_ResetReason node_reset_reason;
+    uint16_t node_raw_reset_flags;
+    uint32_t node_boot_count;
+    uint32_t node_progress_count;
+    uint16_t node_firmware_major;
+    uint16_t node_firmware_minor;
+    uint16_t node_firmware_patch;
+    uint8_t node_wire_major;
+    uint8_t node_wire_minor;
+    uint16_t node_management_major;
+    uint16_t node_management_minor;
+    uint32_t node_build_id;
 } HostNodeManager_Status;
 
 void HostNodeManager_Initialize(void);
@@ -46,5 +63,11 @@ int HostNodeManager_DiagnosticsGetStatus(void);
 int HostNodeManager_DiagnosticsEnable(uint8_t injection_id);
 int HostNodeManager_DiagnosticsDisableAll(void);
 int HostNodeManager_DiagnosticsGetRecord(void);
+int HostNodeManager_LifecycleGetStatus(void);
+int HostNodeManager_LifecycleGetVersions(void);
+int HostNodeManager_LifecycleEnterMaintenance(void);
+int HostNodeManager_LifecycleExitMaintenance(void);
+int HostNodeManager_LifecycleEnterShutdown(void);
+int HostNodeManager_LifecycleExitShutdown(void);
 
 #endif

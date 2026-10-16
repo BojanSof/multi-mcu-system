@@ -23,6 +23,8 @@ LOG_MODULE_REGISTER(host_bringup, LOG_LEVEL_INF);
 #define HOST_SENSOR_SAMPLE_INTERVAL_MS 5000
 #define HOST_ACTUATOR_DEMO_DURATION_MS 2000U
 #define HOST_FAULT_CONTROL_HOLD_MS 1500
+#define HOST_MAINTENANCE_CONTROL_HOLD_MS 5000
+#define HOST_SHUTDOWN_CONTROL_HOLD_MS 8000
 
 #define HOST_LED_NODE DT_ALIAS(led0)
 #define HOST_BUTTON_NODE DT_ALIAS(sw0)
@@ -85,9 +87,16 @@ static int Host_ConfigureButton(void) {
 #endif
 
 static void Host_RequestDemoOperation(void) {
+    const HostNodeManager_Status status = HostNodeManager_GetStatus();
     uint32_t operation_id;
     int result;
 
+    if (status.node_lifecycle_state == NODE_API_LIFECYCLE_MAINTENANCE ||
+        status.node_lifecycle_state == NODE_API_LIFECYCLE_SHUTDOWN) {
+        LOG_WRN("demo operation suppressed while node lifecycle state is %u",
+                status.node_lifecycle_state);
+        return;
+    }
     if (HostNodeManager_HasService(VIRTUAL_IO_ACTUATOR_SERVICE_ID)) {
         uint8_t duration[4];
 
@@ -124,8 +133,12 @@ int main(void) {
     uint8_t selected_injection = 0U;
     uint8_t injection_to_enable = 0U;
     bool fault_disable_requested = false;
+    NodeApi_LifecycleState desired_lifecycle_state = NODE_API_LIFECYCLE_ONLINE;
+    bool lifecycle_request_sent = false;
 #endif
     bool requested_diagnostic_status = false;
+    bool requested_lifecycle_status = false;
+    bool requested_lifecycle_versions = false;
 
     result = Host_ConfigureLed();
     if (result != 0) {
@@ -155,7 +168,7 @@ int main(void) {
     }
     HostNodeManager_Initialize();
 
-    LOG_INF("nRF54L15 host Phase 4 diagnostics demo started");
+    LOG_INF("nRF54L15 host Phase 5 supervision demo started (remote reset disabled)");
 
     for (;;) {
 #if HOST_HAS_BUTTON
@@ -172,7 +185,35 @@ int main(void) {
                 const int64_t held_ms = k_uptime_get() - button_pressed_at;
 
                 button_down = false;
-                if (held_ms >= HOST_FAULT_CONTROL_HOLD_MS) {
+                if (held_ms >= HOST_SHUTDOWN_CONTROL_HOLD_MS) {
+                    if (desired_lifecycle_state != NODE_API_LIFECYCLE_SHUTDOWN &&
+                        !HostNodeManager_HasService(NODE_API_SERVICE_LIFECYCLE)) {
+                        LOG_WRN("node does not advertise a compatible lifecycle service");
+                    } else {
+                        desired_lifecycle_state =
+                            desired_lifecycle_state == NODE_API_LIFECYCLE_SHUTDOWN
+                                ? NODE_API_LIFECYCLE_ONLINE
+                                : NODE_API_LIFECYCLE_SHUTDOWN;
+                        lifecycle_request_sent = false;
+                        LOG_INF("shutdown control: %s requested",
+                                desired_lifecycle_state == NODE_API_LIFECYCLE_SHUTDOWN ? "enter"
+                                                                                       : "exit");
+                    }
+                } else if (held_ms >= HOST_MAINTENANCE_CONTROL_HOLD_MS) {
+                    if (desired_lifecycle_state != NODE_API_LIFECYCLE_MAINTENANCE &&
+                        !HostNodeManager_HasService(NODE_API_SERVICE_LIFECYCLE)) {
+                        LOG_WRN("node does not advertise a compatible lifecycle service");
+                    } else {
+                        desired_lifecycle_state =
+                            desired_lifecycle_state == NODE_API_LIFECYCLE_MAINTENANCE
+                                ? NODE_API_LIFECYCLE_ONLINE
+                                : NODE_API_LIFECYCLE_MAINTENANCE;
+                        lifecycle_request_sent = false;
+                        LOG_INF("maintenance control: %s requested",
+                                desired_lifecycle_state == NODE_API_LIFECYCLE_MAINTENANCE ? "enter"
+                                                                                          : "exit");
+                    }
+                } else if (held_ms >= HOST_FAULT_CONTROL_HOLD_MS) {
                     if (!HostNodeManager_HasService(NODE_API_SERVICE_DIAGNOSTICS)) {
                         LOG_WRN("node does not advertise development diagnostics");
                     } else {
@@ -204,6 +245,20 @@ int main(void) {
 
         if (link_status.state != HOST_LINK_ONLINE) {
             requested_diagnostic_status = false;
+            requested_lifecycle_status = false;
+            requested_lifecycle_versions = false;
+        } else if (HostNodeManager_HasService(NODE_API_SERVICE_LIFECYCLE) &&
+                   !requested_lifecycle_status) {
+            result = HostNodeManager_LifecycleGetStatus();
+            if (result == 0) {
+                requested_lifecycle_status = true;
+            }
+        } else if (HostNodeManager_HasService(NODE_API_SERVICE_LIFECYCLE) &&
+                   !requested_lifecycle_versions) {
+            result = HostNodeManager_LifecycleGetVersions();
+            if (result == 0) {
+                requested_lifecycle_versions = true;
+            }
         } else if (HostNodeManager_HasService(NODE_API_SERVICE_DIAGNOSTICS) &&
                    !requested_diagnostic_status) {
             result = HostNodeManager_DiagnosticsGetStatus();
@@ -213,6 +268,36 @@ int main(void) {
         }
 
 #if HOST_HAS_BUTTON
+        if (link_status.state != HOST_LINK_ONLINE) {
+            lifecycle_request_sent = false;
+        }
+        if (link_status.state == HOST_LINK_ONLINE &&
+            HostNodeManager_HasService(NODE_API_SERVICE_LIFECYCLE)) {
+            const NodeApi_LifecycleState observed = link_status.node_lifecycle_state;
+
+            if (observed == desired_lifecycle_state) {
+                if (lifecycle_request_sent) {
+                    LOG_INF("lifecycle control: node reached state %u", observed);
+                }
+                lifecycle_request_sent = false;
+            } else if (!lifecycle_request_sent) {
+                if (desired_lifecycle_state == NODE_API_LIFECYCLE_MAINTENANCE) {
+                    result = HostNodeManager_LifecycleEnterMaintenance();
+                } else if (desired_lifecycle_state == NODE_API_LIFECYCLE_SHUTDOWN) {
+                    result = HostNodeManager_LifecycleEnterShutdown();
+                } else if (observed == NODE_API_LIFECYCLE_MAINTENANCE) {
+                    result = HostNodeManager_LifecycleExitMaintenance();
+                } else if (observed == NODE_API_LIFECYCLE_SHUTDOWN) {
+                    result = HostNodeManager_LifecycleExitShutdown();
+                } else {
+                    result = -EAGAIN;
+                }
+                if (result == 0) {
+                    lifecycle_request_sent = true;
+                }
+            }
+        }
+
         if (link_status.state == HOST_LINK_ONLINE && fault_disable_requested) {
             result = HostNodeManager_DiagnosticsDisableAll();
             if (result == 0) {
@@ -233,6 +318,8 @@ int main(void) {
         }
 
         if (link_status.state == HOST_LINK_ONLINE &&
+            link_status.node_lifecycle_state != NODE_API_LIFECYCLE_MAINTENANCE &&
+            link_status.node_lifecycle_state != NODE_API_LIFECYCLE_SHUTDOWN &&
             HostNodeManager_HasService(VIRTUAL_IO_SENSOR_SERVICE_ID) &&
             k_uptime_get() >= next_sensor_sample) {
             uint32_t operation_id;

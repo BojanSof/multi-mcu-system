@@ -5,6 +5,7 @@
 #define HAL_CORTEX_MODULE_ENABLED
 #define HAL_FLASH_MODULE_ENABLED
 #define HAL_GPIO_MODULE_ENABLED
+#define HAL_IWDG_MODULE_ENABLED
 #define HAL_PWR_MODULE_ENABLED
 #define HAL_RCC_MODULE_ENABLED
 #define HAL_UART_MODULE_ENABLED
@@ -29,6 +30,7 @@
 #include "stm32u0xx_hal_def.h"
 #include "stm32u0xx_hal_flash.h"
 #include "stm32u0xx_hal_gpio.h"
+#include "stm32u0xx_hal_iwdg.h"
 #include "stm32u0xx_hal_pwr.h"
 #include "stm32u0xx_hal_rcc.h"
 #include "stm32u0xx_hal_uart.h"

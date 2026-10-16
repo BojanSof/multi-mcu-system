@@ -9,6 +9,7 @@
 
 #define NODE_API_SERVICE_GPIO 0x0001U
 #define NODE_API_SERVICE_DIAGNOSTICS 0x0002U
+#define NODE_API_SERVICE_LIFECYCLE 0x0003U
 
 #define NODE_API_GPIO_EVENT_BUTTON_CHANGED 0x0001U
 #define NODE_API_GPIO_BUTTON_EVENT_DATA_SIZE 1U
@@ -18,6 +19,35 @@
 #define NODE_API_DIAGNOSTICS_COMMAND_DISABLE_ALL 0x0003U
 #define NODE_API_DIAGNOSTICS_COMMAND_GET_RECORD 0x0004U
 #define NODE_API_DIAGNOSTICS_EVENT_RECORD 0x0001U
+
+#define NODE_API_LIFECYCLE_VERSION_MAJOR 1U
+#define NODE_API_LIFECYCLE_VERSION_MINOR 0U
+#define NODE_API_LIFECYCLE_COMMAND_GET_STATUS 0x0001U
+#define NODE_API_LIFECYCLE_COMMAND_ENTER_MAINTENANCE 0x0002U
+#define NODE_API_LIFECYCLE_COMMAND_EXIT_MAINTENANCE 0x0003U
+#define NODE_API_LIFECYCLE_COMMAND_GET_VERSIONS 0x0004U
+#define NODE_API_LIFECYCLE_COMMAND_ENTER_SHUTDOWN 0x0005U
+#define NODE_API_LIFECYCLE_COMMAND_EXIT_SHUTDOWN 0x0006U
+#define NODE_API_LIFECYCLE_STATUS_SIZE 12U
+#define NODE_API_LIFECYCLE_VERSIONS_SIZE 16U
+
+typedef enum {
+    NODE_API_LIFECYCLE_INIT = 0,
+    NODE_API_LIFECYCLE_READY = 1,
+    NODE_API_LIFECYCLE_ONLINE = 2,
+    NODE_API_LIFECYCLE_MAINTENANCE = 3,
+    NODE_API_LIFECYCLE_FAULT_LATCHED = 4,
+    NODE_API_LIFECYCLE_SHUTDOWN = 5
+} NodeApi_LifecycleState;
+
+typedef enum {
+    NODE_API_RESET_REASON_UNKNOWN = 0,
+    NODE_API_RESET_REASON_POWER_ON = 1,
+    NODE_API_RESET_REASON_PIN = 2,
+    NODE_API_RESET_REASON_SOFTWARE = 3,
+    NODE_API_RESET_REASON_WATCHDOG = 4,
+    NODE_API_RESET_REASON_BROWNOUT = 5
+} NodeApi_ResetReason;
 
 typedef struct {
     uint16_t service_id;
@@ -70,5 +100,7 @@ const NodeApi_ServiceDescriptor *NodeApi_GetService(const NodeApi_Registry *regi
 NodeApi_Status NodeApi_DispatchRequest(NodeApi_Registry *registry,
                                        const NodeApi_ServiceRequest *request,
                                        NodeApi_ServiceResponse *response);
+bool NodeApi_IsVersionCompatible(uint16_t required_major, uint16_t required_minor,
+                                 uint16_t offered_major, uint16_t offered_minor);
 
 #endif

@@ -2,9 +2,11 @@
 
 #include "stm32u083_platform/PlatformBoard.h"
 #include "stm32u083_platform/PlatformLog.h"
+#include "stm32u083_platform/PlatformSupervision.h"
 #include "stm32u0xx_hal.h"
 
 int main(void) {
+    PlatformSupervision_CaptureReset();
     if (HAL_Init() != HAL_OK) {
         for (;;) {
         }

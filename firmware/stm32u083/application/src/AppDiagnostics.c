@@ -13,6 +13,7 @@
 #define APP_DIAGNOSTICS_CODE_INJECTION_ENABLED 0x0100U
 #define APP_DIAGNOSTICS_CODE_ACCEPTANCE_DROPPED 0x0101U
 #define APP_DIAGNOSTICS_CODE_OUTPUT_ORDER 0x0102U
+#define APP_DIAGNOSTICS_CODE_RESET_REASON 0x0200U
 
 static AppDiagnostics_State *AppDiagnostics_Instance;
 
@@ -251,6 +252,12 @@ void AppDiagnostics_RecordOutputOrdering(uint32_t operation_id) {
                           violated ? DIAGNOSTICS_SEVERITY_WARNING : DIAGNOSTICS_SEVERITY_INFO,
                           DIAGNOSTICS_DOMAIN_SIMULATION, operation_id, violated ? 2U : 1U);
     AppDiagnostics_MarkEvent();
+}
+
+void AppDiagnostics_RecordReset(uint8_t reset_reason, uint16_t raw_reset_flags) {
+    AppDiagnostics_Record(APP_DIAGNOSTICS_CODE_RESET_REASON, DIAGNOSTICS_SEVERITY_INFO,
+                          DIAGNOSTICS_DOMAIN_RUNTIME, 0U,
+                          ((uint32_t)raw_reset_flags << 8U) | reset_reason);
 }
 
 void AppDiagnostics_ProcessEvents(void) {

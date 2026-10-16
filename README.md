@@ -4,7 +4,9 @@ Reusable dual-MCU engineering demonstration for an nRF54L15-DK host and NUCLEO-U
 Phase 1 establishes independent build boundaries. Phase 2 adds the bounded COBS/CRC32 UART
 protocol, node discovery, READY and active-low IRQ sidebands. Phase 3 adds a portable service
 registry and a removable deterministic virtual-I/O demonstration. Phase 4 adds bounded structured
-diagnostics, development-only fault exercises and correlated log/trace tooling.
+diagnostics, development-only fault exercises and correlated log/trace tooling. Phase 5 adds
+lifecycle control, watchdog/reset supervision, reboot resynchronization and explicit service-version
+compatibility; see `docs/COMPATIBILITY.md` and the Phase 5 report.
 
 ## Local setup
 

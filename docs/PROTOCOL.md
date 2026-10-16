@@ -77,6 +77,19 @@ The record queue is bounded to 16 entries. On overflow it drops the oldest entry
 saturating overflow counter. Host tooling correlates records by operation/correlation ID and
 collector receipt time without claiming MCU clock synchronization.
 
+## Phase 5 lifecycle service
+
+Lifecycle service `0x0003`, version `1.0`, provides `GET_STATUS` (`1`), `ENTER_MAINTENANCE` (`2`),
+`EXIT_MAINTENANCE` (`3`), `GET_VERSIONS` (`4`), `ENTER_SHUTDOWN` (`5`) and `EXIT_SHUTDOWN` (`6`).
+Shutdown is software-only quiescence and does not control power. Status is 12 bytes:
+`state:u8, reset_reason:u8, raw_reset_flags:u16, boot_count:u32, progress_count:u32`. Versions are
+16 bytes: firmware major/minor/patch as `u16`, wire major/minor as `u8`, management major/minor as
+`u16`, and `build_id:u32`. All multibyte fields are explicit little-endian values.
+
+Compatible services require equal major versions and an offered minor greater than or equal to the
+required minor. An incompatible optional service is skipped without disabling other services. See
+`docs/COMPATIBILITY.md` for session, reboot and fault-latch policy.
+
 The canonical constants and APIs are in `libraries/protocol/include/protocol/` and
 `libraries/node-api/include/node_api/NodeCommands.h`. Portable tests cover the golden frame,
 maximum length, partial streams, deterministic varied-length round trips, malformed COBS, invalid

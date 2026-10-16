@@ -8,6 +8,11 @@ NodeApi_Version NodeApi_GetVersion(void) {
     return version;
 }
 
+bool NodeApi_IsVersionCompatible(uint16_t required_major, uint16_t required_minor,
+                                 uint16_t offered_major, uint16_t offered_minor) {
+    return (required_major == offered_major) && (offered_minor >= required_minor);
+}
+
 void NodeApi_RegistryInitialize(NodeApi_Registry *registry) {
     if (registry != NULL) {
         (void)memset(registry, 0, sizeof(*registry));

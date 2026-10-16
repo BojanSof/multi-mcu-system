@@ -7,6 +7,8 @@
 #if !defined(MULTI_MCU_PERSONALITY_A) && !defined(MULTI_MCU_PERSONALITY_B)
 #error "Select exactly one STM32 service personality"
 #endif
+
+static AppServices_State *AppServices_Instance;
 #if defined(MULTI_MCU_PERSONALITY_A) && defined(MULTI_MCU_PERSONALITY_B)
 #error "Select exactly one STM32 service personality"
 #endif
@@ -43,6 +45,7 @@ NodeApi_Status AppServices_Initialize(AppServices_State *state, uint32_t seed) {
         return NODE_API_STATUS_INVALID_ARGUMENT;
     }
     (void)memset(state, 0, sizeof(*state));
+    AppServices_Instance = state;
     NodeApi_RegistryInitialize(&state->registry);
     status = NodeApi_RegisterService(&state->registry, &gpio_service);
     if (status != NODE_API_STATUS_OK) {
@@ -53,18 +56,41 @@ NodeApi_Status AppServices_Initialize(AppServices_State *state, uint32_t seed) {
     if (status != NODE_API_STATUS_OK) {
         return status;
     }
+    status = AppLifecycle_Initialize(&state->lifecycle, &state->registry);
+    if (status != NODE_API_STATUS_OK) {
+        return status;
+    }
+    AppDiagnostics_RecordReset((uint8_t)state->lifecycle.reset_reason,
+                               state->lifecycle.raw_reset_flags);
 #if defined(MULTI_MCU_PERSONALITY_B)
-    return VirtualIo_RegisterServices(&state->virtual_io, &state->registry,
-                                      VIRTUAL_IO_PERSONALITY_B);
+    status =
+        VirtualIo_RegisterServices(&state->virtual_io, &state->registry, VIRTUAL_IO_PERSONALITY_B);
 #else
-    return VirtualIo_RegisterServices(&state->virtual_io, &state->registry,
-                                      VIRTUAL_IO_PERSONALITY_A);
+    status =
+        VirtualIo_RegisterServices(&state->virtual_io, &state->registry, VIRTUAL_IO_PERSONALITY_A);
 #endif
+#if defined(MULTI_MCU_INCOMPATIBLE_SENSOR_DEMO)
+    if (status == NODE_API_STATUS_OK) {
+        size_t index;
+
+        for (index = 0U; index < state->registry.service_count; ++index) {
+            if (state->registry.services[index].descriptor.service_id ==
+                VIRTUAL_IO_SENSOR_SERVICE_ID) {
+                state->registry.services[index].descriptor.version_major++;
+                break;
+            }
+        }
+    }
+#endif
+    return status;
 }
 
 NodeApi_Status AppServices_Tick(AppServices_State *state, uint32_t now_ms) {
     if (state == NULL) {
         return NODE_API_STATUS_INVALID_ARGUMENT;
+    }
+    if (state->lifecycle.state == NODE_API_LIFECYCLE_SHUTDOWN) {
+        return NODE_API_STATUS_OK;
     }
     VirtualIo_SetEarlyOutputInjection(
         &state->virtual_io,
@@ -77,6 +103,9 @@ NodeApi_Status AppServices_PublishButton(AppServices_State *state, bool pressed)
     if (state == NULL) {
         return NODE_API_STATUS_INVALID_ARGUMENT;
     }
+    if (state->lifecycle.state == NODE_API_LIFECYCLE_SHUTDOWN) {
+        return NODE_API_STATUS_BUSY;
+    }
     ++state->button_event_counter;
     if (state->button_event_counter == 0U) {
         ++state->button_event_counter;
@@ -85,6 +114,47 @@ NodeApi_Status AppServices_PublishButton(AppServices_State *state, bool pressed)
     return NodeTransport_PublishServiceEvent(
         NODE_API_SERVICE_GPIO, NODE_API_GPIO_EVENT_BUTTON_CHANGED, state->button_event_counter,
         event_data, sizeof(event_data));
+}
+
+void AppServices_RecordProgress(AppServices_State *state) {
+    if (state != NULL) {
+        AppLifecycle_RecordProgress(&state->lifecycle);
+    }
+}
+
+uint32_t AppServices_GetProgressCount(const AppServices_State *state) {
+    return state == NULL ? 0U : state->lifecycle.progress_count;
+}
+
+bool AppServices_IsMaintenance(const AppServices_State *state) {
+    return (state != NULL) && AppLifecycle_IsMaintenance(&state->lifecycle);
+}
+
+bool AppServices_IsMaintenanceActive(void) {
+    return AppServices_IsMaintenance(AppServices_Instance);
+}
+
+bool AppServices_IsQuiescentActive(void) {
+    return (AppServices_Instance != NULL) &&
+           AppLifecycle_IsQuiescent(&AppServices_Instance->lifecycle);
+}
+
+void AppServices_MarkReady(AppServices_State *state) {
+    if (state != NULL) {
+        AppLifecycle_MarkReady(&state->lifecycle);
+    }
+}
+
+void AppServices_MarkOnline(void) {
+    if (AppServices_Instance != NULL) {
+        AppLifecycle_MarkOnline(&AppServices_Instance->lifecycle);
+    }
+}
+
+void AppServices_ApplyReadyState(AppServices_State *state) {
+    if (state != NULL) {
+        AppLifecycle_ApplyReadyState(&state->lifecycle);
+    }
 }
 
 const char *AppServices_GetPersonalityName(void) {
