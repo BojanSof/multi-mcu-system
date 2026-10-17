@@ -7,7 +7,10 @@
 #include "stm32u083_platform/PlatformSideband.h"
 #include "stm32u083_platform/PlatformSupervision.h"
 
-#define APP_LIFECYCLE_BUILD_IDENTIFIER 0x00050001UL
+#define APP_LIFECYCLE_VERSION_MAJOR 0U
+#define APP_LIFECYCLE_VERSION_MINOR 6U
+#define APP_LIFECYCLE_VERSION_PATCH 0U
+#define APP_LIFECYCLE_BUILD_IDENTIFIER 0x00060001UL
 
 static void AppLifecycle_WriteU16(uint8_t *bytes, uint16_t value) {
     bytes[0] = (uint8_t)value;
@@ -32,9 +35,9 @@ static void AppLifecycle_WriteStatus(const AppLifecycle_State *state,
 }
 
 static void AppLifecycle_WriteVersions(NodeApi_ServiceResponse *response) {
-    AppLifecycle_WriteU16(&response->data[0], 0U);
-    AppLifecycle_WriteU16(&response->data[2], 1U);
-    AppLifecycle_WriteU16(&response->data[4], 0U);
+    AppLifecycle_WriteU16(&response->data[0], APP_LIFECYCLE_VERSION_MAJOR);
+    AppLifecycle_WriteU16(&response->data[2], APP_LIFECYCLE_VERSION_MINOR);
+    AppLifecycle_WriteU16(&response->data[4], APP_LIFECYCLE_VERSION_PATCH);
     response->data[6] = PROTOCOL_WIRE_VERSION_MAJOR;
     response->data[7] = 0U;
     AppLifecycle_WriteU16(&response->data[8], NODE_API_MANAGEMENT_VERSION_MAJOR);

@@ -4,6 +4,9 @@
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
+#if defined(CONFIG_BOOTLOADER_MCUBOOT)
+#include <zephyr/dfu/mcuboot.h>
+#endif
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -139,6 +142,9 @@ int main(void) {
     bool requested_diagnostic_status = false;
     bool requested_lifecycle_status = false;
     bool requested_lifecycle_versions = false;
+#if defined(CONFIG_BOOTLOADER_MCUBOOT) && !defined(MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO)
+    bool trial_confirmation_pending = !boot_is_img_confirmed();
+#endif
 
     result = Host_ConfigureLed();
     if (result != 0) {
@@ -167,6 +173,16 @@ int main(void) {
         LOG_WRN("node UART unavailable: %d", result);
     }
     HostNodeManager_Initialize();
+
+#if defined(CONFIG_BOOTLOADER_MCUBOOT)
+    if (!boot_is_img_confirmed()) {
+#if defined(MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO)
+        LOG_WRN("development rollback demo: deliberately leaving trial image unconfirmed");
+#else
+        LOG_INF("MCUboot trial image awaiting compatible node discovery");
+#endif
+    }
+#endif
 
     LOG_INF("nRF54L15 host Phase 5 supervision demo started (remote reset disabled)");
 
@@ -242,6 +258,20 @@ int main(void) {
             LOG_INF("node link: %s (ready=%u irq=%u)", HostNodeManager_StateName(link_status.state),
                     HostSignals_NodeReady(), HostSignals_NodeIrqAsserted());
         }
+
+#if defined(CONFIG_BOOTLOADER_MCUBOOT) && !defined(MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO)
+        /* ONLINE is reached only after wire/management compatibility and service discovery. */
+        if (trial_confirmation_pending && link_status.state == HOST_LINK_ONLINE) {
+            /* Attempt once per boot; a failure remains unconfirmed and reverts on reset. */
+            trial_confirmation_pending = false;
+            result = boot_write_img_confirmed();
+            if (result != 0) {
+                LOG_ERR("MCUboot image confirmation failed: %d", result);
+            } else {
+                LOG_INF("MCUboot trial image confirmed after compatible node discovery");
+            }
+        }
+#endif
 
         if (link_status.state != HOST_LINK_ONLINE) {
             requested_diagnostic_status = false;

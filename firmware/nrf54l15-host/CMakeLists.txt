@@ -12,6 +12,9 @@ list(APPEND EXTRA_ZEPHYR_MODULES
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(multi_mcu_host C)
 
+option(MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO
+       "Build a development image that deliberately remains unconfirmed" OFF)
+
 target_sources(app PRIVATE
     src/main.c
     src/communication/HostTransport.c
@@ -23,3 +26,6 @@ target_include_directories(app PRIVATE
     include
     "${MULTI_MCU_ROOT}/examples/virtual-io/include"
 )
+if(MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO)
+    target_compile_definitions(app PRIVATE MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO=1)
+endif()

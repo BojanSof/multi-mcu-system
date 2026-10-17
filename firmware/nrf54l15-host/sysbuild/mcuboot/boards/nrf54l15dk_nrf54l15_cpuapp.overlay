@@ -1,0 +1,8 @@
+/* Keep the MCUboot child image on the exact same Phase 6 partition map. */
+#include "../../../boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay"
+
+/ {
+	chosen {
+		zephyr,code-partition = &boot_partition;
+	};
+};

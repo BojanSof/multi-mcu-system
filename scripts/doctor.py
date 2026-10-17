@@ -150,6 +150,41 @@ def ncs_check() -> Check:
     return Check("nRF Connect SDK v3.4.1", "Phase 1 Nordic", "MISSING", "-", "-", action)
 
 
+def nrfutil_mcu_manager_check() -> Check:
+    path = shutil.which("nrfutil")
+    action = (
+        "Install the official command with: nrfutil install mcu-manager; then verify: "
+        "nrfutil --log-output=stdout --log-level=off mcu-manager --version"
+    )
+    if path is None:
+        return Check("nrfutil mcu-manager", "Phase 6 Nordic update", "MISSING", "-", "-", action)
+    return_code, output = run(
+        [path, "--log-output=stdout", "--log-level=off", "mcu-manager", "--version"],
+        timeout=10.0,
+    )
+    if return_code != 0:
+        return Check(
+            "nrfutil mcu-manager",
+            "Phase 6 Nordic update",
+            "MISSING",
+            first_line(output),
+            path,
+            action,
+        )
+    version = next(
+        (line.strip() for line in output.splitlines() if "nrfutil-mcu-manager" in line),
+        first_line(output),
+    )
+    return Check(
+        "nrfutil mcu-manager",
+        "Phase 6 Nordic update",
+        "READY",
+        version,
+        path,
+        "None",
+    )
+
+
 def serial_checks() -> list[Check]:
     devices = sorted(set(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*")))
     if not devices:
@@ -216,7 +251,7 @@ def collect_checks() -> list[Check]:
         tool_check("Arm GNU compiler", ["arm-none-eabi-gcc", str(LOCAL_ARM_BIN / "arm-none-eabi-gcc")], ["--version"], "Phase 1 STM32", "arm-none-eabi-gcc arm-none-eabi-newlib", "https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads"),
         tool_check("Arm GNU binutils", ["arm-none-eabi-objcopy", str(LOCAL_ARM_BIN / "arm-none-eabi-objcopy")], ["--version"], "Phase 1 STM32", "arm-none-eabi-binutils", "https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads"),
         tool_check("west", ["west", str(LOCAL_VENV / "west")], ["--version"], "Phase 1 Nordic", "python-west", "https://docs.nordicsemi.com/bundle/ncs-latest/page/nrf/installation/install_ncs.html", action_override="Run scripts/bootstrap-venv.sh to install west 1.5.0 into the project-local .venv, then verify: .venv/bin/west --version"),
-        tool_check("nrfutil", ["nrfutil"], ["--version"], "Phase 1 Nordic flash", "nrfutil", "https://www.nordicsemi.com/Products/Development-tools/nRF-Util", action_override="Install nRF Util using Nordic's official download, ensure its log directory is writable, then verify: nrfutil --version"),
+        tool_check("nrfutil", ["nrfutil"], ["--log-output=stdout", "--version"], "Phase 1 Nordic flash", "nrfutil", "https://www.nordicsemi.com/Products/Development-tools/nRF-Util", action_override="Install nRF Util using Nordic's official download, then verify: nrfutil --log-output=stdout --version"),
         tool_check("J-Link", ["JLinkExe", "JLink"], ["-version"], "Phase 1 Nordic debug", "jlink-software-and-documentation", "https://www.segger.com/downloads/jlink/", r"J-Link Commander V[0-9]", "Install SEGGER J-Link Software from https://www.segger.com/downloads/jlink/ and verify: JLinkExe -version"),
         tool_check("STM32CubeProgrammer", ["STM32_Programmer_CLI", str(LOCAL_CUBE_PROGRAMMER_BIN / "STM32_Programmer_CLI")], ["--version"], "Phase 1 STM32 flash", "stm32cubeprogrammer", "https://www.st.com/en/development-tools/stm32cubeprog.html", action_override="Install STM32CubeCLT or STM32CubeProgrammer, then verify: STM32_Programmer_CLI --version"),
         tool_check("OpenOCD alternative", ["openocd"], ["--version"], "Phase 1 STM32 debug alternative", "openocd", "https://openocd.org/"),
@@ -225,6 +260,7 @@ def collect_checks() -> list[Check]:
     ]
     checks.extend([
         ncs_check(),
+        nrfutil_mcu_manager_check(),
         directory_check(
             "ObKo stm32-cmake submodule",
             "Phase 1 STM32",

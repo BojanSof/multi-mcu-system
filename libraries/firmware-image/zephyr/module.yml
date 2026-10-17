@@ -1,0 +1,4 @@
+name: multi_mcu_firmware_image
+build:
+  cmake: zephyr
+  kconfig: zephyr/Kconfig

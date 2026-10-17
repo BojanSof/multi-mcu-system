@@ -1,0 +1,1 @@
+set(FIRMWARE_IMAGE_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../src/FirmwareImage.c)

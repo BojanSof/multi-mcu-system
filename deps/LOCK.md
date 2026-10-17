@@ -15,6 +15,7 @@ artifacts are not committed.
 | Python tools | see `tools/requirements.lock` | per-package | project-local `.venv` only |
 | Arm GNU Toolchain | `15.2.Rel1` (`GCC 15.2.1`, binutils `2.45.1`) | GPL and component licenses | local `/home/bojan/toolchains/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi`; not vendored |
 | STM32CubeCLT | `1.22.0` (bundled CubeProgrammer `2.23.0`) | ST license | local `/home/bojan/st/stm32cubeclt_1.22.0`; not vendored |
+| nRF Util MCU Manager | `0.12.0`, commit `4c34b2064cbfdd5e545e397ee2abd840aee9368a` | see Nordic command package | install with `nrfutil install mcu-manager`; serial SMP client for Phase 6 |
 
 ## Reproduction
 

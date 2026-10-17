@@ -1,9 +1,10 @@
-# Phase 2 pinout and electrical gate
+# Current pinout and electrical gate
 
 Software mapping is frozen for NUCLEO-U083RC `MB1932-U083RC-B01` and nRF54L15-DK
 `PCA10156 1.0.0` (date code `2025.30`). On 2026-10-12 the user configured Nordic VDD:IO to
 3.3 V and measured both Nordic VDD:IO and STM VDD at 3.3 V with the boards disconnected. The
-Phase 2 electrical voltage gate is `PASS`.
+electrical voltage gate is `PASS`. Phase 6 moved READY/IRQ from P1.06/P1.07 to P2.06/P2.08 to
+restore debugger UART hardware flow control for bidirectional MCUmgr.
 
 ## Frozen application signals
 
@@ -11,8 +12,8 @@ Phase 2 electrical voltage gate is `PASS`.
 |---|---|---|---|---|
 | `HOST_TX` / `NODE_RX` | P1.11, header P1 pin 14 | PA10, CN10 pin 33 | nRF to STM | inputs until UART init |
 | `NODE_TX` / `HOST_RX` | P1.12, header P1 pin 15 | PA9, CN10 pin 21 | STM to nRF | inputs until UART init |
-| `NODE_IRQ_N` | P1.07, header P1 pin 10 | PB4, CN10 pin 27 | STM to nRF | STM open-drain/high-Z; nRF pull-up |
-| `NODE_READY` | P1.06, P1 header position labeled `P1.06` | PB5, CN10 pin 29 | STM to nRF | STM drives low until ready; nRF pull-down |
+| `NODE_IRQ_N` | P2.08, header P2 pin 11 | PB4, CN10 pin 27 | STM to nRF | STM open-drain/high-Z; nRF pull-up |
+| `NODE_READY` | P2.06, header P2 pin 9 | PB5, CN10 pin 29 | STM to nRF | STM drives low until ready; nRF pull-down |
 | `NODE_DEBUG` | not connected | PB3, CN10 pin 31 | analyzer only | low |
 | `HOST_DEBUG` | P2.10, header P2 pin 13 | not connected | analyzer only | low |
 | `GND` | P30 pin 2 | CN10 pin 20 | common reference | connected only after voltage gate |
@@ -40,9 +41,10 @@ Phase 2. Do not change STM option bytes.
 
 - Nordic GPIO/header functions and physical connector numbering were checked against the official
   nRF54L15-DK hardware guide and PCA10156 1.0.0 schematic package.
-- Nordic documents P1.11/P1.12 as exposed unused GPIOs. P1.06/P1.07 are the debugger UART's
-  optional RTS/CTS pins and are explicitly available for other purposes when hardware flow control
-  is disabled. P2.10 remains an optional trace-header debug output only.
+- Nordic documents P1.11/P1.12 as exposed unused GPIOs. P1.06/P1.07 remain assigned to debugger
+  UART RTS/CTS so bidirectional MCUmgr works over the J-Link VCOM. P2.06/P2.08 are exposed optional
+  trace CLK/DATA0 pins and are used for READY/IRQ; trace cannot be enabled concurrently. P2.10
+  remains the analyzer debug output.
 - ST UM3256 Rev 2 and the MB1932-U083RC-B01 schematic define PA9/PA10 and PB3/PB4/PB5 on CN10.
 
 References:

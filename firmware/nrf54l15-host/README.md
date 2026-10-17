@@ -9,11 +9,14 @@ discovery, the same host image enumerates the node's bounded service registry;
 it does not assume a particular node personality.
 
 The board overlay assigns host TX P1.11, host RX P1.12, active-low node IRQ
-P1.07 with a pull-up, active-high node READY P1.06 with a pull-down, and the
+P2.08 with a pull-up, active-high node READY P2.06 with a pull-down, and the
 inactive-low analyzer output P2.10. These are SoC GPIO names; consult the
 authoritative `hardware/PINOUT.md` for physical header positions and the
 electrical checklist. Do not connect either board until the nRF DK VDDIO is
 physically verified at 3.3 V. Never connect the boards' power rails.
+
+The J-Link console retains UART20 RTS/CTS on P1.06/P1.07 so MCUmgr can receive data from the PC.
+READY/IRQ use optional trace pins instead; trace and these sidebands are mutually exclusive.
 
 From an initialized workspace using the SDK version pinned by the repository
 manifest:
@@ -82,3 +85,11 @@ keeps polling so recovery behavior is observable. A dropped actuator
 acceptance is retried with the exact original frame sequence, operation ID,
 and payload, allowing the node to return its cached acceptance without a
 second execution.
+
+## Phase 6 firmware update profile
+
+The opt-in Phase 6 sysbuild profile adds MCUboot and MCUmgr SMP over the Nordic VCOM while retaining
+the normal host application as an independent build. It uses equal 696 KiB primary/secondary RRAM
+slots and produces `dfu_application.zip` plus `zephyr.signed.bin`. The NCS default signing key is
+development-only and is not production security. Build, initial-flash, upload, confirmation, and
+rollback commands are in [the firmware update guide](../../docs/FIRMWARE_UPDATES.md).

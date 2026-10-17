@@ -1,0 +1,3 @@
+menuconfig MULTI_MCU_FIRMWARE_IMAGE
+    bool "Multi-MCU portable firmware image parser"
+    default y

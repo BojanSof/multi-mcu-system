@@ -138,6 +138,14 @@ Firmware flashing is an explicit hardware step, never part of setup. Do not wire
 `hardware/PINOUT.md` has been completed for the exact board revisions and compatible voltage levels
 have been physically verified. Never connect their USB 5 V or board supply rails together.
 
+## Phase 6 firmware lifecycle
+
+Phase 6 adds an opt-in Nordic MCUboot/MCUmgr serial-update build, deterministic portable `MMFW`
+image tooling, and documented STM32 SWD/factory-ROM recovery. It does not replace the earlier
+non-MCUboot profiles. See [firmware update and recovery](docs/FIRMWARE_UPDATES.md) for exact build,
+flash, OTA, rollback, and STM recovery commands. The Nordic build currently uses the public NCS
+development key and `MMFW` provides integrity only; neither is a production authenticity claim.
+
 ## Phase 2 two-board test
 
 Read [the frozen pinout](hardware/PINOUT.md) and complete its voltage gate before attaching any

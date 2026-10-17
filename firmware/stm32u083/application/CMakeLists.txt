@@ -5,7 +5,7 @@ if(NOT CMAKE_TOOLCHAIN_FILE)
         "Configure with third_party/stm32-cmake/cmake/stm32_gcc.cmake as CMAKE_TOOLCHAIN_FILE")
 endif()
 
-project(multi_mcu_stm32_application VERSION 0.1.0 LANGUAGES C ASM)
+project(multi_mcu_stm32_application VERSION 0.6.0 LANGUAGES C ASM)
 
 set(MULTI_MCU_STM32_PERSONALITY "A" CACHE STRING
     "STM32 virtual-I/O personality (A: GPIO+sensor, B: GPIO+sensor+actuator)")
