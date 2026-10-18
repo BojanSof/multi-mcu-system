@@ -93,3 +93,35 @@ the normal host application as an independent build. It uses equal 696 KiB prima
 slots and produces `dfu_application.zip` plus `zephyr.signed.bin`. The NCS default signing key is
 development-only and is not production security. Build, initial-flash, upload, confirmation, and
 rollback commands are in [the firmware update guide](../../docs/FIRMWARE_UPDATES.md).
+
+## Phase 7 STM32 recovery client profile
+
+The Phase 7 profile is opt-in and does not replace the normal host application. It uses the same
+P1.11/P1.12 node UART to query the STM custom bootloader. Build the query-only diagnostic image
+from the repository root:
+
+```sh
+.venv/bin/west build -p always --no-sysbuild \
+  -b nrf54l15dk/nrf54l15/cpuapp firmware/nrf54l15-host \
+  --build-dir build/nrf54l15-host-phase7-query -- \
+  -DMULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO=ON
+```
+
+To perform a development update, embed a complete signed, slot-specific STM image:
+
+```sh
+.venv/bin/west build -p always --no-sysbuild \
+  -b nrf54l15dk/nrf54l15/cpuapp firmware/nrf54l15-host \
+  --build-dir build/nrf54l15-host-phase7-update -- \
+  -DMULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO=ON \
+  -DMULTI_MCU_PHASE7_STM_IMAGE="$PWD/build/stm32u083-slot1/signed-slot1.bin"
+```
+
+The client queries boot state, selects only the inactive slot, checks that the embedded signed
+header targets that slot, erases it, writes bounded 256-byte chunks, finalizes signature checking,
+marks it pending, and verifies the resulting boot state. Discovery repeats every 250 ms for up to
+15 seconds so it overlaps the STM reset window. Update operations allow 5 seconds and at most three
+identical-sequence retries. The client deliberately does not reset the STM32 after a
+successful transfer; reset it explicitly to begin the trial boot. Do not use this profile to send
+an image to a normally running STM application, and never connect the boards without the electrical
+checks in `hardware/PINOUT.md`.

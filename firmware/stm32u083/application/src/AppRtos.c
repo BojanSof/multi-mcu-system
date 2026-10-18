@@ -6,6 +6,9 @@
 #include "task.h"
 
 #include "AppServices.h"
+#if defined(MULTI_MCU_CUSTOM_BOOT_SLOT)
+#include "AppBootControl.h"
+#endif
 #include "NodeTransport.h"
 #include "stm32u083_platform/PlatformBoard.h"
 #include "stm32u083_platform/PlatformLog.h"
@@ -64,6 +67,12 @@ static void AppRtos_BringupTask(void *context) {
     }
     NodeTransport_Initialize(&AppRtos_NodeTransport, seed, &AppRtos_Services.registry);
     AppServices_MarkReady(&AppRtos_Services);
+#if defined(MULTI_MCU_CUSTOM_BOOT_SLOT)
+    /* Reaching the scheduled bring-up task with initialized services is the
+     * custom-profile self-test gate. Confirmation is committed by the
+     * bootloader after this deliberate reset. */
+    AppBootControl_ConfirmTrialIfRequested();
+#endif
     const int startup_length = snprintf(
         log_line, sizeof(log_line),
         "stm32: fw %s phase-5 %s personality %s session %lu reset %u flags 0x%04x boot %lu\r\n",

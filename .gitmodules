@@ -1,3 +1,9 @@
 [submodule "third_party/stm32-cmake"]
 	path = third_party/stm32-cmake
 	url = https://github.com/ObKo/stm32-cmake.git
+[submodule "third_party/micro-ecc"]
+	path = third_party/micro-ecc
+	url = https://github.com/kmackay/micro-ecc.git
+[submodule "third_party/mbedtls"]
+	path = third_party/mbedtls
+	url = https://github.com/Mbed-TLS/mbedtls.git

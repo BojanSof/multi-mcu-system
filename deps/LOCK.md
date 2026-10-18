@@ -16,6 +16,9 @@ artifacts are not committed.
 | Arm GNU Toolchain | `15.2.Rel1` (`GCC 15.2.1`, binutils `2.45.1`) | GPL and component licenses | local `/home/bojan/toolchains/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi`; not vendored |
 | STM32CubeCLT | `1.22.0` (bundled CubeProgrammer `2.23.0`) | ST license | local `/home/bojan/st/stm32cubeclt_1.22.0`; not vendored |
 | nRF Util MCU Manager | `0.12.0`, commit `4c34b2064cbfdd5e545e397ee2abd840aee9368a` | see Nordic command package | install with `nrfutil install mcu-manager`; serial SMP client for Phase 6 |
+| micro-ecc | commit `541b3a78026420a3e369c4c9281c396b5e531113` | BSD-2-Clause | pinned submodule; P-256 verification only in the STM32 development bootloader |
+| Mbed TLS | `v3.6.7`, commit `068ff080b369adfac81509f9b57b2afabaf82dc5` | Apache-2.0 | pinned submodule; SHA-256 implementation for signed STM32 images |
+| Python cryptography | `49.0.0` | Apache-2.0 OR BSD-3-Clause | project-local signing and verification only; private keys remain outside Git |
 
 ## Reproduction
 

@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 device:
   name: STM32U083RC
   flash_origin: 0x08000000
@@ -12,9 +12,16 @@ profiles:
       origin: 0x08000000
       size: 0x40000
   custom_ab_provisional:
-    description: Reserved for Phase 7; must not be used until generated layouts and fit tests pass
-    enabled: false
+    description: Phase 7 signed direct-XIP A/B development layout
+    enabled: true
+    image_header_size: 0x200
+    signature_algorithm: ecdsa-p256-sha256
     bootloader: { origin: 0x08000000, size: 0x10000 }
-    slot0: { origin: 0x08010000, size: 0x16000 }
-    slot1: { origin: 0x08026000, size: 0x16000 }
-    metadata: { origin: 0x0803C000, size: 0x4000 }
+    slot0: { origin: 0x08010000, vector_origin: 0x08010200, size: 0x16000 }
+    slot1: { origin: 0x08026000, vector_origin: 0x08026200, size: 0x16000 }
+    metadata:
+      origin: 0x0803C000
+      size: 0x4000
+      journal0: { origin: 0x0803C000, size: 0x800 }
+      journal1: { origin: 0x0803C800, size: 0x800 }
+      reserved: { origin: 0x0803D000, size: 0x3000 }

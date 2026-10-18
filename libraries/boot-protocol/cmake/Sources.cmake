@@ -1,0 +1,1 @@
+set(BOOT_PROTOCOL_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../src/BootProtocol.c)

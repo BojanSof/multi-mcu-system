@@ -7,6 +7,14 @@ endif()
 
 project(multi_mcu_stm32_application VERSION 0.6.0 LANGUAGES C ASM)
 
+set(MULTI_MCU_STM32_LAYOUT_PROFILE "rom_bringup" CACHE STRING
+    "STM32 link profile (rom_bringup or custom_ab)")
+set_property(CACHE MULTI_MCU_STM32_LAYOUT_PROFILE PROPERTY STRINGS rom_bringup custom_ab)
+set(MULTI_MCU_STM32_SLOT "" CACHE STRING "Custom A/B slot number (0 or 1)")
+if(NOT MULTI_MCU_STM32_LAYOUT_PROFILE MATCHES "^(rom_bringup|custom_ab)$")
+    message(FATAL_ERROR "Unknown MULTI_MCU_STM32_LAYOUT_PROFILE")
+endif()
+
 set(MULTI_MCU_STM32_PERSONALITY "A" CACHE STRING
     "STM32 virtual-I/O personality (A: GPIO+sensor, B: GPIO+sensor+actuator)")
 set_property(CACHE MULTI_MCU_STM32_PERSONALITY PROPERTY STRINGS A B)
@@ -36,6 +44,29 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/Dependencies.cmake")
 get_filename_component(MULTI_MCU_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+if(MULTI_MCU_STM32_LAYOUT_PROFILE STREQUAL "custom_ab")
+    if(NOT MULTI_MCU_STM32_SLOT MATCHES "^[01]$")
+        message(FATAL_ERROR "custom_ab requires MULTI_MCU_STM32_SLOT=0 or 1")
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(MULTI_MCU_LAYOUT_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated-layout")
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}"
+                "${MULTI_MCU_ROOT}/scripts/generate_flash_layout.py"
+                "${CMAKE_CURRENT_LIST_DIR}/../memory/flash_layout.yaml"
+                "${MULTI_MCU_LAYOUT_OUTPUT}"
+        COMMAND_ERROR_IS_FATAL ANY)
+    if(MULTI_MCU_STM32_SLOT STREQUAL "0")
+        set(MULTI_MCU_SLOT_LINKER "${MULTI_MCU_LAYOUT_OUTPUT}/slot0.ld")
+        set(MULTI_MCU_SLOT_VECTOR_ADDRESS 0x08010200)
+    else()
+        set(MULTI_MCU_SLOT_LINKER "${MULTI_MCU_LAYOUT_OUTPUT}/slot1.ld")
+        set(MULTI_MCU_SLOT_VECTOR_ADDRESS 0x08026200)
+    endif()
+    # The CMSIS target contributes a whole-flash default script. A custom slot
+    # build must use only the generated layout-authoritative script.
+    set_property(TARGET CMSIS::STM32::U083RC PROPERTY INTERFACE_LINK_OPTIONS "")
+endif()
 add_subdirectory("${MULTI_MCU_ROOT}/libraries/protocol"
                  "${CMAKE_CURRENT_BINARY_DIR}/protocol")
 add_subdirectory("${MULTI_MCU_ROOT}/libraries/node-api"
@@ -77,6 +108,16 @@ if(MULTI_MCU_INCOMPATIBLE_SENSOR_DEMO)
     target_compile_definitions(multi_mcu_stm32_application PRIVATE
         MULTI_MCU_INCOMPATIBLE_SENSOR_DEMO=1)
 endif()
+if(MULTI_MCU_STM32_LAYOUT_PROFILE STREQUAL "custom_ab")
+    target_sources(multi_mcu_stm32_application PRIVATE src/AppBootControl.c)
+    target_include_directories(multi_mcu_stm32_application PRIVATE "${MULTI_MCU_LAYOUT_OUTPUT}")
+    target_include_directories(multi_mcu_stm32_application PRIVATE
+        "${CMAKE_CURRENT_LIST_DIR}/../bootloader/include")
+    target_compile_definitions(multi_mcu_stm32_application PRIVATE
+        MULTI_MCU_CUSTOM_BOOT_SLOT=${MULTI_MCU_STM32_SLOT}
+        MULTI_MCU_SLOT_VECTOR_ADDRESS=${MULTI_MCU_SLOT_VECTOR_ADDRESS})
+    target_link_options(multi_mcu_stm32_application PRIVATE "-T${MULTI_MCU_SLOT_LINKER}")
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/Stm32Targets.cmake")
 multi_mcu_configure_stm32_application(multi_mcu_stm32_application)
@@ -86,3 +127,8 @@ target_link_libraries(multi_mcu_stm32_application PRIVATE
     Diagnostics::Diagnostics
     VirtualIo::VirtualIo)
 stm32_print_size_of_target(multi_mcu_stm32_application)
+add_custom_command(TARGET multi_mcu_stm32_application POST_BUILD
+    COMMAND "${CMAKE_OBJCOPY}" -O binary
+            "$<TARGET_FILE:multi_mcu_stm32_application>"
+            "${CMAKE_CURRENT_BINARY_DIR}/multi_mcu_stm32_application.bin"
+    VERBATIM)

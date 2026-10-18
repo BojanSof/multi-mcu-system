@@ -63,6 +63,32 @@
         "MULTI_MCU_STM32_PERSONALITY": "B",
         "MULTI_MCU_ENABLE_DEV_FAULTS": "OFF"
       }
+    },
+    {
+      "name": "release-slot0",
+      "displayName": "NUCLEO-U083RC signed A/B application Slot 0",
+      "inherits": "debug-base",
+      "binaryDir": "${sourceDir}/build/release-slot0",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MULTI_MCU_STM32_PERSONALITY": "B",
+        "MULTI_MCU_ENABLE_DEV_FAULTS": "OFF",
+        "MULTI_MCU_STM32_LAYOUT_PROFILE": "custom_ab",
+        "MULTI_MCU_STM32_SLOT": "0"
+      }
+    },
+    {
+      "name": "release-slot1",
+      "displayName": "NUCLEO-U083RC signed A/B application Slot 1",
+      "inherits": "debug-base",
+      "binaryDir": "${sourceDir}/build/release-slot1",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MULTI_MCU_STM32_PERSONALITY": "B",
+        "MULTI_MCU_ENABLE_DEV_FAULTS": "OFF",
+        "MULTI_MCU_STM32_LAYOUT_PROFILE": "custom_ab",
+        "MULTI_MCU_STM32_SLOT": "1"
+      }
     }
   ],
   "buildPresets": [
@@ -85,6 +111,14 @@
     {
       "name": "release-personality-b",
       "configurePreset": "release-personality-b"
+    },
+    {
+      "name": "release-slot0",
+      "configurePreset": "release-slot0"
+    },
+    {
+      "name": "release-slot1",
+      "configurePreset": "release-slot1"
     }
   ]
 }

@@ -6,7 +6,8 @@ protocol, node discovery, READY and active-low IRQ sidebands. Phase 3 adds a por
 registry and a removable deterministic virtual-I/O demonstration. Phase 4 adds bounded structured
 diagnostics, development-only fault exercises and correlated log/trace tooling. Phase 5 adds
 lifecycle control, watchdog/reset supervision, reboot resynchronization and explicit service-version
-compatibility; see `docs/COMPATIBILITY.md` and the Phase 5 report.
+compatibility. Phase 6 adds standard recovery/update paths, and Phase 7 adds the separately
+selectable signed STM32 direct-A/B profile; see `docs/COMPATIBILITY.md` and the phase reports.
 
 ## Local setup
 
@@ -145,6 +146,13 @@ image tooling, and documented STM32 SWD/factory-ROM recovery. It does not replac
 non-MCUboot profiles. See [firmware update and recovery](docs/FIRMWARE_UPDATES.md) for exact build,
 flash, OTA, rollback, and STM recovery commands. The Nordic build currently uses the public NCS
 development key and `MMFW` provides integrity only; neither is a production authenticity claim.
+
+## Phase 7 STM32 signed A/B profile
+
+The custom bootloader profile does not replace the ROM-bring-up application. It builds two
+independently linked STM32 applications and packages each with a signed `MMFW` v2 header. Private
+keys are external and `keys/` is ignored. See [the bootloader guide](docs/BOOTLOADER.md) for the
+layout, security limits, build/sign commands, and the hardware test sequence.
 
 ## Phase 2 two-board test
 

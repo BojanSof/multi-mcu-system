@@ -162,9 +162,130 @@ static int Test_CompatibilityAndHash(void) {
     return 0;
 }
 
+static void Test_MakeSignedImage(uint8_t image[515]) {
+    size_t index;
+
+    (void)memset(image, 0, 515U);
+    (void)memcpy(image, "MMFW", 4U);
+    image[4] = FIRMWARE_IMAGE_SIGNED_FORMAT_MAJOR;
+    image[5] = FIRMWARE_IMAGE_SIGNED_FORMAT_MINOR;
+    Test_WriteU16(&image[6], FIRMWARE_IMAGE_SIGNED_HEADER_SIZE);
+    Test_WriteU32(&image[8], FIRMWARE_IMAGE_TARGET_STM32U083_APPLICATION);
+    Test_WriteU32(&image[12], FIRMWARE_IMAGE_HARDWARE_NUCLEO_U083RC);
+    Test_WriteU16(&image[16], 2U);
+    Test_WriteU16(&image[18], 1U);
+    Test_WriteU16(&image[20], 7U);
+    Test_WriteU16(&image[22], FIRMWARE_IMAGE_SIGNED_FLAG_AUTHENTICATED);
+    Test_WriteU32(&image[24], UINT32_C(0x87654321));
+    Test_WriteU32(&image[28], FIRMWARE_IMAGE_STM32_SLOT1_VECTOR_ADDRESS);
+    Test_WriteU32(&image[32], 3U);
+    image[36] = 1U;
+    image[37] = 2U;
+    Test_WriteU16(&image[38], 1U);
+    Test_WriteU16(&image[40], 4U);
+    image[42] = FIRMWARE_IMAGE_SLOT_1;
+    image[43] = FIRMWARE_IMAGE_SIGNATURE_ECDSA_P256_SHA256;
+    Test_WriteU32(&image[44], 1U);
+    for (index = 0U; index < FIRMWARE_IMAGE_SHA256_SIZE; ++index) {
+        image[48U + index] = (uint8_t)(0x80U + index);
+    }
+    for (index = 0U; index < FIRMWARE_IMAGE_SIGNATURE_SIZE; ++index) {
+        image[80U + index] = (uint8_t)(index + 1U);
+    }
+    image[512] = 0xAAU;
+    image[513] = 0xBBU;
+    image[514] = 0xCCU;
+}
+
+static int Test_SignedImage(void) {
+    uint8_t image[515];
+    FirmwareImage_SignedManifest manifest;
+    FirmwareImage_SignedCompatibility compatibility = {
+        .target_id = FIRMWARE_IMAGE_TARGET_STM32U083_APPLICATION,
+        .hardware_id = FIRMWARE_IMAGE_HARDWARE_NUCLEO_U083RC,
+        .slot_id = FIRMWARE_IMAGE_SLOT_1,
+        .vector_address = FIRMWARE_IMAGE_STM32_SLOT1_VECTOR_ADDRESS,
+        .maximum_payload_size = FIRMWARE_IMAGE_STM32_MAX_PAYLOAD_SIZE,
+        .signature_algorithm = FIRMWARE_IMAGE_SIGNATURE_ECDSA_P256_SHA256,
+        .key_id = 1U,
+        .wire_major = 1U,
+        .wire_minor = 2U,
+        .management_major = 1U,
+        .management_minor = 4U,
+    };
+    const uint8_t *payload = NULL;
+    const uint8_t *canonical = NULL;
+    size_t canonical_size = 0U;
+
+    Test_MakeSignedImage(image);
+    CHECK(FirmwareImage_ParseSignedHeader(image, sizeof(image), &manifest, &payload) ==
+          FIRMWARE_IMAGE_STATUS_OK);
+    CHECK(payload == &image[512] && manifest.manifest.payload_size == 3U);
+    CHECK(manifest.slot_id == FIRMWARE_IMAGE_SLOT_1 && manifest.key_id == 1U);
+    CHECK(manifest.manifest.load_address == FIRMWARE_IMAGE_STM32_SLOT1_VECTOR_ADDRESS);
+    CHECK(manifest.signature[0] == 1U && manifest.signature[63] == 64U);
+    CHECK(FirmwareImage_ValidateSignedCompatibility(&manifest, &compatibility) ==
+          FIRMWARE_IMAGE_STATUS_OK);
+    CHECK(FirmwareImage_GetCanonicalSignedBytes(image, sizeof(image), &canonical,
+                                                &canonical_size) == FIRMWARE_IMAGE_STATUS_OK);
+    CHECK(canonical == image && canonical_size == 80U);
+
+    compatibility.key_id = 2U;
+    CHECK(FirmwareImage_ValidateSignedCompatibility(&manifest, &compatibility) ==
+          FIRMWARE_IMAGE_STATUS_UNKNOWN_KEY);
+    compatibility.key_id = 1U;
+    compatibility.slot_id = FIRMWARE_IMAGE_SLOT_0;
+    CHECK(FirmwareImage_ValidateSignedCompatibility(&manifest, &compatibility) ==
+          FIRMWARE_IMAGE_STATUS_INVALID_SLOT);
+    compatibility.slot_id = FIRMWARE_IMAGE_SLOT_1;
+    compatibility.vector_address = FIRMWARE_IMAGE_STM32_SLOT0_VECTOR_ADDRESS;
+    CHECK(FirmwareImage_ValidateSignedCompatibility(&manifest, &compatibility) ==
+          FIRMWARE_IMAGE_STATUS_INCOMPATIBLE);
+    return 0;
+}
+
+static int Test_SignedMalformed(void) {
+    uint8_t image[515];
+    FirmwareImage_SignedManifest manifest;
+    const uint8_t *payload = NULL;
+
+    Test_MakeSignedImage(image);
+    CHECK(FirmwareImage_ParseSignedHeader(image, 511U, &manifest, &payload) ==
+          FIRMWARE_IMAGE_STATUS_TRUNCATED);
+    image[42] = 2U;
+    CHECK(FirmwareImage_ParseSignedHeader(image, sizeof(image), &manifest, &payload) ==
+          FIRMWARE_IMAGE_STATUS_INVALID_SLOT);
+    Test_MakeSignedImage(image);
+    image[43] = 2U;
+    CHECK(FirmwareImage_ParseSignedHeader(image, sizeof(image), &manifest, &payload) ==
+          FIRMWARE_IMAGE_STATUS_UNSUPPORTED_ALGORITHM);
+    Test_MakeSignedImage(image);
+    image[144] = 1U;
+    CHECK(FirmwareImage_ParseSignedHeader(image, sizeof(image), &manifest, &payload) ==
+          FIRMWARE_IMAGE_STATUS_INVALID_HEADER);
+    Test_MakeSignedImage(image);
+    image[22] = 0U;
+    CHECK(FirmwareImage_ParseSignedHeader(image, sizeof(image), &manifest, &payload) ==
+          FIRMWARE_IMAGE_STATUS_INVALID_HEADER);
+    Test_MakeSignedImage(image);
+    (void)memset(&image[112], 0xFF, 32U);
+    CHECK(FirmwareImage_ParseSignedHeader(image, sizeof(image), &manifest, &payload) ==
+          FIRMWARE_IMAGE_STATUS_SIGNATURE_MISMATCH);
+    Test_MakeSignedImage(image);
+    (void)memset(&image[80], 0, 32U);
+    CHECK(FirmwareImage_ParseSignedHeader(image, sizeof(image), &manifest, &payload) ==
+          FIRMWARE_IMAGE_STATUS_SIGNATURE_MISMATCH);
+    Test_MakeSignedImage(image);
+    CHECK(FirmwareImage_ParseSignedHeader(image, sizeof(image) - 1U, &manifest, &payload) ==
+          FIRMWARE_IMAGE_STATUS_SIZE_MISMATCH);
+    return 0;
+}
+
 int main(void) {
     CHECK(Test_Parse() == 0);
     CHECK(Test_Malformed() == 0);
     CHECK(Test_CompatibilityAndHash() == 0);
+    CHECK(Test_SignedImage() == 0);
+    CHECK(Test_SignedMalformed() == 0);
     return 0;
 }
