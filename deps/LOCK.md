@@ -6,7 +6,7 @@ artifacts are not committed.
 | Dependency | Pin | License | Source / note |
 |---|---|---|---|
 | nRF Connect SDK | `v3.4.1` | mixed; see upstream manifest | `west.yml`; current stable 3.4 LTS patch selected, not a preview |
-| Zephyr | resolved by NCS `v3.4.1` manifest | Apache-2.0 | record exact revisions with `west manifest --freeze` after update |
+| Zephyr | resolved by NCS `v3.4.1` manifest | Apache-2.0 | active project revisions frozen in `deps/west-manifest-freeze.yml` |
 | stm32-cmake | gitlink `ecc5acc082effc4793eb7cbed8d8b7bd4896ca6e` | MIT | pinned submodule revision with upstream STM32U0 support |
 | CMSIS core | `v5.6.0`, commit `96d6da4e252b06dcfdc041e7df23e86161c33007` | Apache-2.0 | resolved from the pinned stm32-cmake U0 dependency declaration |
 | STM32CubeU0 CMSIS device | `v1.0.0`, commit `056d6c5e23eb33ed6ad2fad6bd4ce6e5b0e719a4` | Apache-2.0 | ignored checkout at `.deps/cmsis-device-u0` |
@@ -27,8 +27,11 @@ git submodule update --init --recursive
 west init -l .
 west update
 west manifest --validate
-west manifest --freeze > deps/west-manifest-freeze.yml
+west manifest --freeze --active-only -o ../deps/west-manifest-freeze.yml
 ```
+
+The committed freeze contains every project active for this application. Disabled manifest groups
+may remain intentionally uncloned and are excluded rather than represented by unverified SHAs.
 
 The STM dependency revisions above were resolved from their signed/annotated release tags and
 verified by a successful application cross-build. Local source trees remain ignored and are never

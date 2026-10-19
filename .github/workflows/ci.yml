@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/requirements.lock
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+
+      - name: Create isolated Python environment
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install --requirement tools/requirements.lock
+
+      - name: Run native and Python regression suite
+        run: scripts/test/run_native.sh
+
+      - name: Check repository whitespace
+        run: git diff --check
+
+  embedded:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, multi-mcu-lab]
+    timeout-minutes: 60
+    steps:
+      - name: Check out source and pinned submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Audit preinstalled SDKs and toolchains
+        run: |
+          source ./.env.local
+          .venv/bin/python scripts/doctor.py
+
+      - name: Build all STM32 profiles
+        env:
+          BOOTLOADER_PUBLIC_KEY_HEADER: ${{ vars.BOOTLOADER_PUBLIC_KEY_HEADER }}
+        run: |
+          source ./.env.local
+          scripts/build/build_stm32.sh
+
+      - name: Build Nordic default profile
+        run: |
+          source ./.env.local
+          scripts/build/build_nordic.sh --profile default

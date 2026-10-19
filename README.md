@@ -7,7 +7,9 @@ registry and a removable deterministic virtual-I/O demonstration. Phase 4 adds b
 diagnostics, development-only fault exercises and correlated log/trace tooling. Phase 5 adds
 lifecycle control, watchdog/reset supervision, reboot resynchronization and explicit service-version
 compatibility. Phase 6 adds standard recovery/update paths, and Phase 7 adds the separately
-selectable signed STM32 direct-A/B profile; see `docs/COMPATIBILITY.md` and the phase reports.
+selectable signed STM32 direct-A/B profile. Phase 8 adds canonical regression/build scripts,
+CI, optional observation-only HIL tooling, and extraction/release documentation; see
+`docs/COMPATIBILITY.md` and the phase reports.
 
 ## Local setup
 
@@ -57,6 +59,25 @@ cmake --preset native-debug
 cmake --build --preset native-debug
 ctest --preset native-debug
 ```
+
+The canonical Phase 8 regression entry point performs the native library tests, bootloader
+state-machine tests, Python tooling tests, and HIL-runner unit tests:
+
+```sh
+scripts/test/run_native.sh
+```
+
+Cross-build every STM32 application/slot plus the bootloader using an external generated public-key
+header, or build the normal Nordic host, from the repository root:
+
+```sh
+scripts/build/build_stm32.sh --public-key-header /absolute/path/to/BootPublicKey.h
+scripts/build/build_nordic.sh --profile default
+```
+
+These scripts never flash hardware. See `docs/USER_DEMO.md` for the integrated board demonstration,
+`tests/hil/README.md` for explicitly enabled serial observation, `docs/RELEASE_MATRIX.md` for version
+compatibility, and `docs/EXTRACTION.md` / `docs/API_CONTRACTS.md` for reusable package boundaries.
 
 ## nRF Connect SDK workspace
 

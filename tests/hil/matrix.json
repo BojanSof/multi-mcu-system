@@ -1,0 +1,26 @@
+{
+  "phase2_link": {
+    "description": "Node discovery and online transition",
+    "duration_seconds": 8,
+    "expect": {
+      "host": ["node link: online", "node online: stm32u083rc-node"],
+      "node": ["stm32:"]
+    }
+  },
+  "phase5_smoke": {
+    "description": "Persistent link, heartbeat and periodic virtual sensor service",
+    "duration_seconds": 15,
+    "expect": {
+      "host": ["node link: online", "virtual sensor sample:"],
+      "node": ["heartbeat"]
+    }
+  },
+  "phase7_confirmed_boot": {
+    "description": "Confirmed STM image reaches the application and remains alive",
+    "duration_seconds": 8,
+    "expect": {
+      "host": [],
+      "node": ["stm32: fw", "heartbeat"]
+    }
+  }
+}

@@ -1,5 +1,7 @@
 /build/
 **/build/
+!scripts/build/
+!scripts/build/*.sh
 build-*/
 .venv/
 .ncs-workspace/
