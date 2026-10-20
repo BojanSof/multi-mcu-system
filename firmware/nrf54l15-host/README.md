@@ -125,3 +125,39 @@ identical-sequence retries. The client deliberately does not reset the STM32 aft
 successful transfer; reset it explicitly to begin the trial boot. Do not use this profile to send
 an image to a normally running STM application, and never connect the boards without the electrical
 checks in `hardware/PINOUT.md`.
+
+## Phase 9 operator control profile
+
+The opt-in control application uses MCUboot and MCUmgr over the existing J-Link
+VCOM. Select `MULTI_MCU_PHASE9_CONTROL=ON`, append `phase9_control.conf` after
+`phase6_mcumgr.conf`, and reuse the Phase 6 sysbuild configuration and overlay.
+Use the root `scripts/build/build_nordic.sh --profile phase9` wrapper once the
+project environment is loaded. The control and Phase 7 bootloader-demo profiles
+are independently selectable and cannot be enabled together.
+
+SMP group 64 implements the frozen `docs/CONTROL_API.md` contract. Only the main
+thread accesses `HostNodeManager`; SMP handlers admit a single bounded mailbox
+request and read mutex-protected snapshots/history. The last eight admitted
+request IDs are cached for idempotent retry within one host boot. The sixteen
+retained event records are read in pages of four. The CLI must obtain
+`host_boot_id` from status and include it as `expected_boot_id` for every call.
+
+Periodic example calls, button-triggered commands and automatic diagnostics
+draining are disabled in this profile. Node discovery and heartbeat supervision
+continue. Firmware version is `unknown` until a lifecycle versions call succeeds
+in the current node session. Commands 4–6 remain reserved for later phases.
+
+The Phase 9 VCOM is dedicated to SMP: application logs use nonblocking SEGGER RTT
+to prevent UART log characters corrupting management frames. MCUboot may print
+startup text before the application begins. Existing profiles retain UART logs.
+
+Native admission/replay/session/history regressions use SDK boundary doubles.
+When `.ncs-workspace` is available, a second test links its actual zcbor and
+MCUmgr map decoder to verify nested, maximum-size responses and malformed
+requests. Four maximum-size retained records encode into 687 CBOR bytes.
+
+```sh
+cmake -S firmware/nrf54l15-host/tests -B build/host-control-native
+cmake --build build/host-control-native
+ctest --test-dir build/host-control-native --output-on-failure
+```

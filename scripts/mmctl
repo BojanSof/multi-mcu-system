@@ -1,0 +1,8 @@
+#!/bin/sh
+# Root-independent entry point; all Python dependencies stay in the project venv.
+MMCTL_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ ! -x "$MMCTL_ROOT/.venv/bin/python" ]; then
+    echo "Missing project .venv; follow README setup instructions." >&2
+    exit 1
+fi
+exec "$MMCTL_ROOT/.venv/bin/python" "$MMCTL_ROOT/tools/cli/mmctl.py" "$@"

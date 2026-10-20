@@ -49,6 +49,19 @@ Phase 2. Do not change STM option bytes.
 
 References:
 
+## Planned supervision extension (Phase 10; not enabled in Phase 9)
+
+Approved candidates are P1.08 (physical P1 header pin 11) to STM CN7 pin 14 NRST,
+and P1.14 (physical P1 header pin 17) to STM CN7 pin 7 BOOT0. P1.08 is also DK
+button2; pressing it would reset STM. P1.14 is LED3; it would indicate BOOT0.
+Disable their other software consumers and verify exact-revision schematic loading,
+reset defaults and Nordic startup errata before physical connection. NRST must
+only sink low or release high-Z; BOOT0 uses the STM pull-down as its safe default.
+The accepted plan does not authorize enabling unverified GPIO drivers. Continue
+using the current five-wire connection until the Phase 10 wiring gate is published.
+
+## Source links
+
 - https://docs.nordicsemi.com/r/bundle/ug_nrf54l15_dk/page/ug/nrf54l15_dk/hw_desription/connector_if.html
 - https://docs.nordicsemi.com/r/bundle/ug_nrf54l15_dk/page/ug/nrf54l15_dk/hw_desription/power_supply.html
 - https://www.nordicsemi.com/Products/Development-hardware/nRF54L15-DK/Hardware-files

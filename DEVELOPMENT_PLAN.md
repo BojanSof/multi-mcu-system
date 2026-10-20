@@ -1,12 +1,12 @@
 # Multi-MCU Lab — Development Plan
 
-**Version:** 2.0 (2026-10-10)  
-**Status:** Implementation handoff for Codex  
+**Version:** 3.0 (2026-10-20)
+**Status:** Phases 1–8 baseline delivered; Phase 9 implementation in progress
 **Hardware:** Nordic **nRF54L15-DK** (host), ST **NUCLEO-U083RC** (node), USB leads and jumper/protoboard wires **only**  
 **Firmware language:** C (C11 for project-owned libraries); Python permitted for developer tools and tests  
 **Companion instructions:** [`AGENTS.md`](AGENTS.md)
 
-> **Start here, Codex.** Read this document and `AGENTS.md` before modifying code. Execute the eight phases in order, parallelizing independently owned packages when practical. At the beginning, run a dependency/environment audit and tell the user precisely which missing **non-Python** tools, SDKs, OS packages or manual board operations are required. You may create a **project-local Python `.venv`** for CLI, test, image-packaging and signing tools. Do not claim a board, firmware update, flash operation, or logic-analyzer capture was performed without actual evidence.
+> **Start here, Codex.** Read this document and `AGENTS.md` before modifying code. Execute the twelve phases in order, parallelizing independently owned packages when practical. At the beginning, run a dependency/environment audit and tell the user precisely which missing **non-Python** tools, SDKs, OS packages or manual board operations are required. You may create a **project-local Python `.venv`** for CLI, test, image-packaging and signing tools. Do not claim a board, firmware update, flash operation, or logic-analyzer capture was performed without actual evidence.
 
 ## 1. Goals, hardware limits and architectural decisions
 
@@ -443,7 +443,13 @@ These are **starting allocations, not guaranteed fits**. Reserve an explicitly d
 
 **Core HIL update cases:** blank Slot 1, valid Slot 0; valid signed Slot 1 pending then confirmed; trial crash causing revert; interrupt erase/program at different offsets; corrupted image/hash/signature; tampered target address; both metadata pages stale/corrupted; selecting slot explicitly (development CLI restricted to safe transitions); recovery with no valid apps. Hardware erase stress tests must be bounded to protect flash endurance.
 
-## 10. Eight manageable implementation phases
+## 10. Implementation phases
+
+The original eight phases below retain their historical reports. The approved
+continuation, Phases 9–12, is specified in [POST_BASELINE_PLAN.md](docs/POST_BASELINE_PLAN.md).
+Execute all twelve phases in sequence; the current frozen interface is
+[CONTROL_API.md](docs/CONTROL_API.md). This continuation supersedes earlier whole-image
+Nordic staging requirements for STM updates: PC streaming is now the chosen architecture.
 
 For **every phase**, Codex produces a concise plan and contracts first; delegates non-overlapping code to parallel agents where supported; runs feasible tests; writes `docs/PHASE_REPORTS/PHASE_N.md` containing exact commands, tool versions, Git revision, PASS/FAIL/BLOCKED/NOT_RUN_HARDWARE and next steps. **Never rely on hardware being attached to Codex's environment.** If unavailable, finish native/tests/builds and output step-by-step human HIL instructions.
 

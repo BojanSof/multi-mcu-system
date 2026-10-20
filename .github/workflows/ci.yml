@@ -64,3 +64,8 @@ jobs:
         run: |
           source ./.env.local
           scripts/build/build_nordic.sh --profile default
+
+      - name: Build Nordic operator control profile
+        run: |
+          source ./.env.local
+          scripts/build/build_nordic.sh --profile phase9

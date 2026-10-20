@@ -11,6 +11,28 @@ selectable signed STM32 direct-A/B profile. Phase 8 adds canonical regression/bu
 CI, optional observation-only HIL tooling, and extraction/release documentation; see
 `docs/COMPATIBILITY.md` and the phase reports.
 
+Phase 9 adds an opt-in USB operator CLI and typed host control interface. The
+approved continuation is in [docs/POST_BASELINE_PLAN.md](docs/POST_BASELINE_PLAN.md),
+with the frozen protocol in [docs/CONTROL_API.md](docs/CONTROL_API.md).
+
+## USB operator control (Phase 9)
+
+From the project root, build and initially flash the dedicated Nordic profile:
+
+```sh
+source ./.env.local
+.venv/bin/python -m pip install -r tools/requirements.lock
+scripts/build/build_nordic.sh --profile phase9
+.venv/bin/west flash -d build/nrf54l15-host-phase9
+scripts/mmctl device list
+```
+
+Use the Nordic J-Link VCOM shown by device discovery; close any log terminal using
+that port. Existing STM firmware and the five application wires suffice for this
+phase. The CLI owns the Nordic serial connection while executing. See
+[docs/CLI.md](docs/CLI.md) for operations and expected results. Additional reset/BOOT0
+wires and automated STM updates belong to Phases 10–11.
+
 ## Local setup
 
 Create the ignored project Python environment, load the ignored local tool paths, and audit the

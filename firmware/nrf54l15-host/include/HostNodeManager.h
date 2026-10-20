@@ -50,7 +50,25 @@ typedef struct {
     uint16_t node_management_major;
     uint16_t node_management_minor;
     uint32_t node_build_id;
+    uint32_t node_versions_session;
 } HostNodeManager_Status;
+
+typedef enum {
+    HOST_NODE_RECORD_RESPONSE,
+    HOST_NODE_RECORD_EVENT,
+    HOST_NODE_RECORD_ERROR
+} HostNodeManager_RecordKind;
+
+typedef void (*HostNodeManager_RecordCallback)(HostNodeManager_RecordKind kind, uint32_t session,
+                                               uint32_t operation, uint16_t service, uint16_t code,
+                                               uint32_t status, const uint8_t *data, size_t length);
+
+/* These functions, like the manager itself, are owned by the application's main thread. */
+void HostNodeManager_SetRecordCallback(HostNodeManager_RecordCallback callback);
+bool HostNodeManager_IsBusy(void);
+int HostNodeManager_CallServiceWithOperation(uint16_t service_id, uint16_t command_id,
+                                             const uint8_t *data, size_t data_length,
+                                             uint32_t operation_id);
 
 void HostNodeManager_Initialize(void);
 void HostNodeManager_Process(void);

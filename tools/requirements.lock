@@ -1,5 +1,6 @@
 # Exact Phase 1 Python tool pins. Regenerate deliberately when requirements.in changes.
 cffi==2.1.1
+cbor2==6.1.5
 colorama==0.4.6
 cryptography==49.0.0
 docopt==0.6.2
@@ -7,6 +8,7 @@ iniconfig==2.1.0
 packaging==25.0
 pluggy==1.6.0
 pycparser==3.11
+pyserial==3.5
 pykwalify==1.8.0
 Pygments==2.19.2
 pytest==8.4.2

@@ -19,6 +19,8 @@ artifacts are not committed.
 | micro-ecc | commit `541b3a78026420a3e369c4c9281c396b5e531113` | BSD-2-Clause | pinned submodule; P-256 verification only in the STM32 development bootloader |
 | Mbed TLS | `v3.6.7`, commit `068ff080b369adfac81509f9b57b2afabaf82dc5` | Apache-2.0 | pinned submodule; SHA-256 implementation for signed STM32 images |
 | Python cryptography | `49.0.0` | Apache-2.0 OR BSD-3-Clause | project-local signing and verification only; private keys remain outside Git |
+| pyserial | `3.5` | BSD-3-Clause | project-local USB serial CLI transport |
+| cbor2 | `6.1.5` | MIT | project-local SMP CBOR codec; MCU uses pinned SDK zcbor |
 
 ## Reproduction
 

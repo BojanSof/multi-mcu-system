@@ -18,6 +18,24 @@ option(MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO
        "Build a development image that deliberately remains unconfirmed" OFF)
 option(MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO
        "Build the opt-in STM32 custom bootloader recovery/update client" OFF)
+option(MULTI_MCU_PHASE9_CONTROL "Build the opt-in MCUmanager host control group" OFF)
+
+# Sysbuild stores image-scoped command-line values as properties; plain option()
+# does not import them into the child application's CMake cache.
+if(SYSBUILD)
+    foreach(profile_option MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO
+                           MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO
+                           MULTI_MCU_PHASE9_CONTROL)
+        unset(profile_value)
+        zephyr_get(profile_value VAR ${profile_option})
+        if(DEFINED profile_value)
+            set(${profile_option} "${profile_value}" CACHE BOOL "Selected firmware profile" FORCE)
+        endif()
+    endforeach()
+endif()
+if(MULTI_MCU_PHASE9_CONTROL AND MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO)
+    message(FATAL_ERROR "Phase 9 control and Phase 7 demo are independent profiles")
+endif()
 set(MULTI_MCU_PHASE7_STM_IMAGE "" CACHE FILEPATH
     "Optional signed STM32 slot image embedded in the Phase 7 demo")
 
@@ -45,6 +63,14 @@ else()
         src/node_manager/HostNodeManager.c
         src/platform/HostSignals.c
     )
+endif()
+
+if(MULTI_MCU_PHASE9_CONTROL)
+    if(NOT CONFIG_MCUMGR)
+        message(FATAL_ERROR "Phase 9 requires phase6_mcumgr.conf and phase9_control.conf")
+    endif()
+    target_sources(app PRIVATE src/control/HostControl.c)
+    target_compile_definitions(app PRIVATE MULTI_MCU_PHASE9_CONTROL=1)
 endif()
 
 target_include_directories(app PRIVATE

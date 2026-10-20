@@ -12,6 +12,7 @@ Usage: scripts/build/build_nordic.sh [--profile PROFILE] [--stm-image PATH]
 Profiles:
   default        Normal host firmware (default)
   phase6         MCUboot/MCUmgr firmware
+  phase9         MCUboot/MCUmgr host control API for scripts/mmctl
   phase7-query   STM bootloader query client
   phase7-update  STM bootloader update client; requires --stm-image
 
@@ -40,7 +41,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$profile" in
-    default|phase6|phase7-query|phase7-update) ;;
+    default|phase6|phase9|phase7-query|phase7-update) ;;
     *) echo "error: unknown profile: $profile" >&2; exit 2 ;;
 esac
 
@@ -78,6 +79,15 @@ case "$profile" in
             -DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay \
             -DSB_EXTRA_CONF_FILE="$source_dir/sysbuild_phase6_mcumgr.conf"
         ;;
+    phase9)
+        build_dir="$repo_root/build/nrf54l15-host-phase9"
+        "$west_command" build -p always -b "$board" "$source_dir" \
+            --build-dir "$build_dir" -- \
+            -Dnrf54l15-host_MULTI_MCU_PHASE9_CONTROL=ON \
+            '-DEXTRA_CONF_FILE=phase6_mcumgr.conf;phase9_control.conf' \
+            -DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay \
+            -DSB_EXTRA_CONF_FILE="$source_dir/sysbuild_phase6_mcumgr.conf"
+        ;;
     phase7-query)
         build_dir="$repo_root/build/nrf54l15-host-phase7-query"
         "$west_command" build -p always --no-sysbuild -b "$board" "$source_dir" \
@@ -100,5 +110,17 @@ case "$profile" in
             -DMULTI_MCU_PHASE7_STM_IMAGE="$stm_image"
         ;;
 esac
+
+if [ "$profile" = phase9 ]; then
+    application_dir="$build_dir/nrf54l15-host"
+    if ! grep -q '^MULTI_MCU_PHASE9_CONTROL:BOOL=ON$' "$application_dir/CMakeCache.txt"; then
+        echo "error: Phase 9 control was not enabled in the application image" >&2
+        exit 1
+    fi
+    if ! grep -q 'HostControl.c.obj' "$application_dir/zephyr/zephyr.map"; then
+        echo "error: Phase 9 control handler is missing from the linked firmware" >&2
+        exit 1
+    fi
+fi
 
 echo "Built Nordic profile '$profile' in $build_dir"

@@ -3,3 +3,5 @@ cryptography==49.0.0
 pytest==8.4.2
 PyYAML==6.0.3
 west==1.5.0
+pyserial==3.5
+cbor2==6.1.5

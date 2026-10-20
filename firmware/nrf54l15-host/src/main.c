@@ -16,6 +16,9 @@
 #include "HostNodeManager.h"
 #include "HostSignals.h"
 #include "HostTransport.h"
+#if defined(MULTI_MCU_PHASE9_CONTROL)
+#include "HostControl.h"
+#endif
 #include "diagnostics/DiagnosticsFault.h"
 #include "node_api/NodeServices.h"
 #include "virtual_io/VirtualIo.h"
@@ -38,7 +41,7 @@ LOG_MODULE_REGISTER(host_bringup, LOG_LEVEL_INF);
 
 static const struct gpio_dt_spec Host_Led = GPIO_DT_SPEC_GET(HOST_LED_NODE, gpios);
 
-#if DT_NODE_HAS_STATUS(HOST_BUTTON_NODE, okay)
+#if DT_NODE_HAS_STATUS(HOST_BUTTON_NODE, okay) && !defined(MULTI_MCU_PHASE9_CONTROL)
 #define HOST_HAS_BUTTON 1
 static const struct gpio_dt_spec Host_Button = GPIO_DT_SPEC_GET(HOST_BUTTON_NODE, gpios);
 static struct gpio_callback Host_ButtonCallback;
@@ -89,6 +92,7 @@ static int Host_ConfigureButton(void) {
 }
 #endif
 
+#if !defined(MULTI_MCU_PHASE9_CONTROL)
 static void Host_RequestDemoOperation(void) {
     const HostNodeManager_Status status = HostNodeManager_GetStatus();
     uint32_t operation_id;
@@ -122,13 +126,16 @@ static void Host_RequestDemoOperation(void) {
         }
     }
 }
+#endif
 
 int main(void) {
     int result;
     bool led_on = false;
     HostLink_State reported_link_state = HOST_LINK_DISABLED;
     int64_t next_blink = 0;
+#if !defined(MULTI_MCU_PHASE9_CONTROL)
     int64_t next_sensor_sample = 0;
+#endif
 #if HOST_HAS_BUTTON
     atomic_val_t reported_button_changes = 0;
     int64_t button_pressed_at = 0;
@@ -139,9 +146,11 @@ int main(void) {
     NodeApi_LifecycleState desired_lifecycle_state = NODE_API_LIFECYCLE_ONLINE;
     bool lifecycle_request_sent = false;
 #endif
+#if !defined(MULTI_MCU_PHASE9_CONTROL)
     bool requested_diagnostic_status = false;
     bool requested_lifecycle_status = false;
     bool requested_lifecycle_versions = false;
+#endif
 #if defined(CONFIG_BOOTLOADER_MCUBOOT) && !defined(MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO)
     bool trial_confirmation_pending = !boot_is_img_confirmed();
 #endif
@@ -173,6 +182,9 @@ int main(void) {
         LOG_WRN("node UART unavailable: %d", result);
     }
     HostNodeManager_Initialize();
+#if defined(MULTI_MCU_PHASE9_CONTROL)
+    HostControl_Initialize();
+#endif
 
 #if defined(CONFIG_BOOTLOADER_MCUBOOT)
     if (!boot_is_img_confirmed()) {
@@ -184,7 +196,11 @@ int main(void) {
     }
 #endif
 
+#if defined(MULTI_MCU_PHASE9_CONTROL)
+    LOG_INF("nRF54L15 host Phase 9 control API started (SMP group 64, API 1)");
+#else
     LOG_INF("nRF54L15 host Phase 5 supervision demo started (remote reset disabled)");
+#endif
 
     for (;;) {
 #if HOST_HAS_BUTTON
@@ -252,6 +268,9 @@ int main(void) {
 #endif
 
         HostNodeManager_Process();
+#if defined(MULTI_MCU_PHASE9_CONTROL)
+        HostControl_Process();
+#endif
         HostNodeManager_Status link_status = HostNodeManager_GetStatus();
         if (link_status.state != reported_link_state) {
             reported_link_state = link_status.state;
@@ -273,6 +292,7 @@ int main(void) {
         }
 #endif
 
+#if !defined(MULTI_MCU_PHASE9_CONTROL)
         if (link_status.state != HOST_LINK_ONLINE) {
             requested_diagnostic_status = false;
             requested_lifecycle_status = false;
@@ -363,6 +383,7 @@ int main(void) {
             }
         }
 
+#endif
         if (k_uptime_get() >= next_blink) {
             next_blink = k_uptime_get() + HOST_BLINK_INTERVAL_MS;
             led_on = !led_on;

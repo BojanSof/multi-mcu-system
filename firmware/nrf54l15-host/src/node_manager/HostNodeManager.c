@@ -56,6 +56,22 @@ typedef struct {
 } HostNodeManager_Context;
 
 static HostNodeManager_Context HostNodeManager;
+static HostNodeManager_RecordCallback HostNodeManager_RecordObserver;
+
+void HostNodeManager_SetRecordCallback(HostNodeManager_RecordCallback callback) {
+    HostNodeManager_RecordObserver = callback;
+}
+
+bool HostNodeManager_IsBusy(void) { return HostNodeManager.pending_message != 0U; }
+
+static void HostNodeManager_Emit(HostNodeManager_RecordKind kind, uint32_t operation,
+                                 uint16_t service, uint16_t code, uint32_t status,
+                                 const uint8_t *data, size_t length) {
+    if (HostNodeManager_RecordObserver != NULL) {
+        HostNodeManager_RecordObserver(kind, HostNodeManager.status.session_generation, operation,
+                                       service, code, status, data, length);
+    }
+}
 
 static void HostNodeManager_RecordDiagnostic(uint8_t severity, uint8_t domain, uint16_t code,
                                              uint32_t correlation_id, uint32_t detail) {
@@ -174,6 +190,11 @@ static void HostNodeManager_WriteU32(uint8_t *data, uint32_t value) {
 }
 
 static void HostNodeManager_ClearPending(void) {
+    if (HostNodeManager.pending_operation != 0U) {
+        HostNodeManager_Emit(HOST_NODE_RECORD_ERROR, HostNodeManager.pending_operation,
+                             HostNodeManager.pending_service, HostNodeManager.pending_command,
+                             ECANCELED, NULL, 0U);
+    }
     HostNodeManager.pending_message = 0U;
     HostNodeManager.pending_payload_length = 0U;
     HostNodeManager.pending_service = 0U;
@@ -299,6 +320,9 @@ static int HostNodeManager_SendRequest(uint16_t message_id, const uint8_t *data,
 static void HostNodeManager_CompleteRequest(void) {
     HostNodeManager.pending_message = 0U;
     HostNodeManager.pending_payload_length = 0U;
+    HostNodeManager.pending_operation = 0U;
+    HostNodeManager.pending_service = 0U;
+    HostNodeManager.pending_command = 0U;
     HostNodeManager.retry_count = 0U;
     HostNodeManager.deadline = k_uptime_get() + HOST_HEARTBEAT_PERIOD_MS;
 }
@@ -423,6 +447,7 @@ static void HostNodeManager_Advance(uint16_t message_id, const Protocol_Frame *f
 
         if (frame->payload_length <
                 NODE_API_REQUEST_PREFIX_SIZE + NODE_API_SERVICE_CALL_HEADER_SIZE ||
+            response_data_length > NODE_API_SERVICE_DATA_MAX_LENGTH ||
             session != HostNodeManager.status.session_generation ||
             HostNodeManager_ReadU16(&frame->payload[6]) != HostNodeManager.pending_service ||
             HostNodeManager_ReadU16(&frame->payload[8]) != HostNodeManager.pending_command ||
@@ -430,6 +455,9 @@ static void HostNodeManager_Advance(uint16_t message_id, const Protocol_Frame *f
             HostNodeManager.status.rejected_responses++;
             return;
         }
+        HostNodeManager_Emit(HOST_NODE_RECORD_RESPONSE, HostNodeManager.pending_operation,
+                             HostNodeManager.pending_service, HostNodeManager.pending_command, 0U,
+                             response_data, response_data_length);
         LOG_INF("service 0x%04x command 0x%04x operation %u accepted",
                 HostNodeManager.pending_service, HostNodeManager.pending_command,
                 HostNodeManager.pending_operation);
@@ -492,6 +520,7 @@ static void HostNodeManager_Advance(uint16_t message_id, const Protocol_Frame *f
             HostNodeManager.status.node_management_minor =
                 HostNodeManager_ReadU16(&response_data[10]);
             HostNodeManager.status.node_build_id = HostNodeManager_ReadU32(&response_data[12]);
+            HostNodeManager.status.node_versions_session = session;
             LOG_INF("node versions: fw %u.%u.%u wire %u.%u management %u.%u build 0x%08x",
                     HostNodeManager.status.node_firmware_major,
                     HostNodeManager.status.node_firmware_minor,
@@ -550,6 +579,9 @@ static void HostNodeManager_EventReceived(const Protocol_Frame *frame) {
         HostNodeManager.status.rejected_responses++;
         return;
     }
+
+    HostNodeManager_Emit(HOST_NODE_RECORD_EVENT, operation_id, service_id, event_id, 0U, event_data,
+                         event_data_length);
 
     if (service_id == NODE_API_SERVICE_DIAGNOSTICS &&
         event_id == NODE_API_DIAGNOSTICS_EVENT_RECORD) {
@@ -613,6 +645,9 @@ static void HostNodeManager_FrameReceived(const Protocol_Frame *frame, void *con
         if (frame->payload_length == NODE_API_ERROR_RESPONSE_SIZE) {
             LOG_WRN("request 0x%04x rejected with status %u", message_id, frame->payload[6]);
             if (message_id == NODE_API_MESSAGE_SERVICE_CALL) {
+                HostNodeManager_Emit(HOST_NODE_RECORD_ERROR, HostNodeManager.pending_operation,
+                                     HostNodeManager.pending_service,
+                                     HostNodeManager.pending_command, frame->payload[6], NULL, 0U);
                 HostNodeManager_CompleteRequest();
                 return;
             }
@@ -712,9 +747,17 @@ void HostNodeManager_Process(void) {
                                      HOST_DIAGNOSTIC_CODE_REQUEST_TIMEOUT,
                                      HostNodeManager.pending_operation,
                                      HostNodeManager.pending_message);
+    if (HostNodeManager.pending_operation != 0U) {
+        HostNodeManager_Emit(HOST_NODE_RECORD_ERROR, HostNodeManager.pending_operation,
+                             HostNodeManager.pending_service, HostNodeManager.pending_command,
+                             ETIMEDOUT, NULL, 0U);
+    }
     HostNodeManager.status.session_generation = 0U;
     HostNodeManager.status.state = HOST_LINK_DISCOVERING;
     HostNodeManager.pending_message = 0U;
+    HostNodeManager.pending_operation = 0U;
+    HostNodeManager.pending_service = 0U;
+    HostNodeManager.pending_command = 0U;
     (void)HostNodeManager_SendRequest(NODE_API_MESSAGE_HELLO, NULL, 0U);
 }
 
@@ -739,8 +782,23 @@ bool HostNodeManager_HasService(uint16_t service_id) {
 
 int HostNodeManager_CallService(uint16_t service_id, uint16_t command_id, const uint8_t *data,
                                 size_t data_length, uint32_t *operation_id) {
+    uint32_t next = HostNodeManager.status.next_operation_id + 1U;
+    if (next == 0U) {
+        next = 1U;
+    }
+    int result =
+        HostNodeManager_CallServiceWithOperation(service_id, command_id, data, data_length, next);
+    if (result == 0 && operation_id != NULL) {
+        *operation_id = next;
+    }
+    return result;
+}
+
+int HostNodeManager_CallServiceWithOperation(uint16_t service_id, uint16_t command_id,
+                                             const uint8_t *data, size_t data_length,
+                                             uint32_t operation_id) {
     uint8_t call[NODE_API_SERVICE_CALL_HEADER_SIZE + NODE_API_SERVICE_DATA_MAX_LENGTH];
-    uint32_t next_operation;
+    uint32_t next_operation = operation_id;
 
     if (HostNodeManager.status.state != HOST_LINK_ONLINE ||
         !HostNodeManager_HasService(service_id)) {
@@ -749,13 +807,11 @@ int HostNodeManager_CallService(uint16_t service_id, uint16_t command_id, const 
     if (HostNodeManager.pending_message != 0U) {
         return -EBUSY;
     }
-    if (data_length > NODE_API_SERVICE_DATA_MAX_LENGTH || (data_length != 0U && data == NULL)) {
+    if (operation_id == 0U || data_length > NODE_API_SERVICE_DATA_MAX_LENGTH ||
+        (data_length != 0U && data == NULL)) {
         return -EINVAL;
     }
-    next_operation = ++HostNodeManager.status.next_operation_id;
-    if (next_operation == 0U) {
-        next_operation = ++HostNodeManager.status.next_operation_id;
-    }
+    HostNodeManager.status.next_operation_id = next_operation;
     HostNodeManager_WriteU16(&call[0], service_id);
     HostNodeManager_WriteU16(&call[2], command_id);
     HostNodeManager_WriteU32(&call[4], next_operation);
@@ -767,10 +823,10 @@ int HostNodeManager_CallService(uint16_t service_id, uint16_t command_id, const 
     HostNodeManager.pending_operation = next_operation;
     if (HostNodeManager_SendRequest(NODE_API_MESSAGE_SERVICE_CALL, call,
                                     NODE_API_SERVICE_CALL_HEADER_SIZE + data_length) != 0) {
+        HostNodeManager.pending_operation = 0U;
+        HostNodeManager.pending_service = 0U;
+        HostNodeManager.pending_command = 0U;
         return -EBUSY;
-    }
-    if (operation_id != NULL) {
-        *operation_id = next_operation;
     }
     return 0;
 }
