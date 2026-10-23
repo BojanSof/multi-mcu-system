@@ -19,6 +19,9 @@
 #endif
 
 #include "HostNodeManager.h"
+#if defined(MULTI_MCU_PHASE10_UPDATE)
+#include "HostUpdateAdapter.h"
+#endif
 #include "virtual_io/VirtualIo.h"
 
 #define HOST_CONTROL_GROUP 64U
@@ -137,6 +140,9 @@ void HostControl_Initialize(void) {
     do {
         HostControl_BootId = sys_rand32_get();
     } while (HostControl_BootId == 0U);
+#if defined(MULTI_MCU_PHASE10_UPDATE)
+    HostUpdateAdapter_Initialize(HostControl_BootId);
+#endif
     HostNodeManager_SetRecordCallback(HostControl_RecordReceived);
     HostControl_Process();
 }
@@ -194,6 +200,9 @@ void HostControl_Process(void) {
     k_mutex_lock(&HostControl_Lock, K_FOREVER);
     HostControl_Status = HostNodeManager_GetStatus();
     HostControl_Busy = HostNodeManager_IsBusy() || HostControl_Queued;
+#if defined(MULTI_MCU_PHASE10_UPDATE)
+    HostUpdateAdapter_SetRuntimeBusy(HostControl_Busy || HostControl_AsyncActuator.pending);
+#endif
     k_mutex_unlock(&HostControl_Lock);
 }
 
@@ -222,6 +231,12 @@ static int HostControl_StatusRead(struct smp_streamer *stream) {
               HostControl_Uint(state, "dropped", HostControl_Dropped) &&
               zcbor_tstr_put_lit(state, "busy") && zcbor_bool_put(state, HostControl_Busy) &&
               HostControl_Text(state, "firmware", firmware);
+#if defined(MULTI_MCU_PHASE10_UPDATE)
+    ok = ok && zcbor_tstr_put_lit(state, "supervision") &&
+         zcbor_bool_put(state, HostUpdateAdapter_IsAvailable()) &&
+         zcbor_tstr_put_lit(state, "stm_update") &&
+         zcbor_bool_put(state, HostUpdateAdapter_IsAvailable());
+#endif
     k_mutex_unlock(&HostControl_Lock);
     return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
 }
@@ -300,7 +315,11 @@ static int HostControl_CallWrite(struct smp_streamer *stream) {
         result = HostControl_Error(state, "unsupported");
         goto done;
     }
-    if (HostControl_Busy || HostControl_Queued) {
+    if (HostControl_Busy || HostControl_Queued
+#if defined(MULTI_MCU_PHASE10_UPDATE)
+        || !HostUpdateAdapter_ReserveRuntime()
+#endif
+    ) {
         result = HostControl_Error(state, "busy");
         goto done;
     }
@@ -379,9 +398,16 @@ static int HostControl_Unsupported(struct smp_streamer *stream) {
 }
 
 static const struct mgmt_handler HostControl_Handlers[] = {
-    [0] = {.mh_read = HostControl_StatusRead},   [1] = {.mh_read = HostControl_ServicesRead},
-    [2] = {.mh_write = HostControl_CallWrite},   [3] = {.mh_read = HostControl_EventsRead},
+    [0] = {.mh_read = HostControl_StatusRead},
+    [1] = {.mh_read = HostControl_ServicesRead},
+    [2] = {.mh_write = HostControl_CallWrite},
+    [3] = {.mh_read = HostControl_EventsRead},
+#if defined(MULTI_MCU_PHASE10_UPDATE)
+    [4] = {.mh_read = HostUpdateAdapter_StatusRead, .mh_write = HostUpdateAdapter_ResetWrite},
+    [5] = {.mh_read = HostUpdateAdapter_StatusRead, .mh_write = HostUpdateAdapter_UpdateWrite},
+#else
     [4] = {.mh_write = HostControl_Unsupported}, [5] = {.mh_write = HostControl_Unsupported},
+#endif
     [6] = {.mh_write = HostControl_Unsupported},
 };
 

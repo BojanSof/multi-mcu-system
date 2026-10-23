@@ -32,7 +32,7 @@
 #define FIRMWARE_IMAGE_STM32_SLOT1_BASE 0x08026000UL
 #define FIRMWARE_IMAGE_STM32_SLOT1_VECTOR_ADDRESS 0x08026200UL
 #define FIRMWARE_IMAGE_STM32_SLOT_SIZE 0x00016000UL
-#define FIRMWARE_IMAGE_STM32_MAX_PAYLOAD_SIZE                                             \
+#define FIRMWARE_IMAGE_STM32_MAX_PAYLOAD_SIZE                                                      \
     (FIRMWARE_IMAGE_STM32_SLOT_SIZE - FIRMWARE_IMAGE_SIGNED_HEADER_SIZE)
 
 typedef enum {
@@ -111,13 +111,17 @@ FirmwareImage_Status
 FirmwareImage_ValidateHash(const FirmwareImage_Manifest *manifest,
                            const uint8_t calculated_sha256[FIRMWARE_IMAGE_SHA256_SIZE]);
 FirmwareImage_Status FirmwareImage_ParseSignedHeader(const uint8_t *image, size_t image_size,
-                                                      FirmwareImage_SignedManifest *manifest,
-                                                      const uint8_t **payload);
-FirmwareImage_Status FirmwareImage_ValidateSignedCompatibility(
-    const FirmwareImage_SignedManifest *manifest,
-    const FirmwareImage_SignedCompatibility *compatibility);
+                                                     FirmwareImage_SignedManifest *manifest,
+                                                     const uint8_t **payload);
+/* Parse a separately buffered header for a streamed image; never reads payload. */
+FirmwareImage_Status FirmwareImage_ParseSignedPrefix(const uint8_t *header, size_t header_size,
+                                                     size_t total_size,
+                                                     FirmwareImage_SignedManifest *manifest);
+FirmwareImage_Status
+FirmwareImage_ValidateSignedCompatibility(const FirmwareImage_SignedManifest *manifest,
+                                          const FirmwareImage_SignedCompatibility *compatibility);
 FirmwareImage_Status FirmwareImage_GetCanonicalSignedBytes(const uint8_t *image, size_t image_size,
-                                                            const uint8_t **canonical,
-                                                            size_t *canonical_size);
+                                                           const uint8_t **canonical,
+                                                           size_t *canonical_size);
 
 #endif

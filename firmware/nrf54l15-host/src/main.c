@@ -19,6 +19,9 @@
 #if defined(MULTI_MCU_PHASE9_CONTROL)
 #include "HostControl.h"
 #endif
+#if defined(MULTI_MCU_PHASE10_UPDATE)
+#include "HostUpdateAdapter.h"
+#endif
 #include "diagnostics/DiagnosticsFault.h"
 #include "node_api/NodeServices.h"
 #include "virtual_io/VirtualIo.h"
@@ -267,7 +270,14 @@ int main(void) {
         }
 #endif
 
+#if defined(MULTI_MCU_PHASE10_UPDATE)
+        HostUpdateAdapter_Process();
+        if (!HostUpdateAdapter_UsesBootTransport()) {
+            HostNodeManager_Process();
+        }
+#else
         HostNodeManager_Process();
+#endif
 #if defined(MULTI_MCU_PHASE9_CONTROL)
         HostControl_Process();
 #endif

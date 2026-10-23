@@ -1,7 +1,7 @@
 # Multi-MCU Lab — Development Plan
 
 **Version:** 3.0 (2026-10-20)
-**Status:** Phases 1–8 baseline delivered; Phase 9 implementation in progress
+**Status:** Phases 1–9 delivered; Phase 10 software integration and hardware acceptance
 **Hardware:** Nordic **nRF54L15-DK** (host), ST **NUCLEO-U083RC** (node), USB leads and jumper/protoboard wires **only**  
 **Firmware language:** C (C11 for project-owned libraries); Python permitted for developer tools and tests  
 **Companion instructions:** [`AGENTS.md`](AGENTS.md)

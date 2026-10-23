@@ -158,7 +158,7 @@ class SmpClient:
                         if group == 64 and response.get("rc") == 8:
                             raise SmpError("host control commands are unavailable; build and flash the phase9 profile")
                         raise SmpError(f"device management error: {response}")
-                    if "error" in response:
+                    if isinstance(response.get("error"), str):
                         raise SmpError(f"host control error: {response['error']}")
                     return response
         raise SmpTimeout("SMP response timed out; operation outcome may be unknown")

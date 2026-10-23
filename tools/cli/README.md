@@ -47,5 +47,29 @@ diagnostic bypass of the normal self-test policy.
 
 An interrupted service call is never reconnected/replayed automatically. Retried
 requests retain the same request ID and expected host boot ID; a Nordic restart
-invalidates pending operations. Physical STM reset and STM update/recovery remain
-unavailable until Phases 10/11.
+invalidates pending operations.
+
+The independently selectable `phase10` profile adds remote STM reset and signed
+custom-bootloader updates. Verify the documented supervision wiring first.
+
+```sh
+./scripts/mmctl node reset --yes
+./scripts/mmctl stm status
+./scripts/mmctl stm image inspect path/to/slot1.mmfw --public-key /external/public.pem
+./scripts/mmctl stm update path/to/slot1.mmfw --public-key /external/public.pem --yes
+./scripts/mmctl stm abort --yes
+```
+
+Image inspection is offline. Updates require an external trusted P-256 public key
+and validate the complete signed MMFW image before opening the serial port. The
+default trusted key ID is 1; use `--key-id` to match a deliberately configured
+bootloader key ID. Choose the image linked opposite the previously confirmed slot;
+the host checks the STM journal before erasing. Initial idle `stm status` has
+unknown slots; its confirmed slot is populated after the first update query.
+
+The CLI streams bounded chunks and waits for STM acknowledgement before advancing.
+It reports completion only after confirmation and rediscovery; rollback is a
+failure. After a timeout or USB disconnect, use `stm status` to inspect the job;
+the CLI never reconnects and replays an update. Ctrl-C attempts abort before the
+commit starts. Once `finish` has been sent, verification proceeds on the host.
+Factory-ROM recovery remains a Phase 11 command.

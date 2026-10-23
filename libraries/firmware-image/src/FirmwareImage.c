@@ -145,13 +145,28 @@ FirmwareImage_ValidateHash(const FirmwareImage_Manifest *manifest,
 FirmwareImage_Status FirmwareImage_ParseSignedHeader(const uint8_t *image, size_t image_size,
                                                      FirmwareImage_SignedManifest *manifest,
                                                      const uint8_t **payload) {
-    uint32_t payload_size;
-
-    if ((image == NULL) || (manifest == NULL) || (payload == NULL)) {
+    if (payload == NULL) {
         return FIRMWARE_IMAGE_STATUS_INVALID_ARGUMENT;
     }
     *payload = NULL;
-    if (image_size < FIRMWARE_IMAGE_SIGNED_HEADER_SIZE) {
+    FirmwareImage_Status status =
+        FirmwareImage_ParseSignedPrefix(image, image_size, image_size, manifest);
+    if (status == FIRMWARE_IMAGE_STATUS_OK) {
+        *payload = &image[FIRMWARE_IMAGE_SIGNED_HEADER_SIZE];
+    }
+    return status;
+}
+
+FirmwareImage_Status FirmwareImage_ParseSignedPrefix(const uint8_t *image, size_t header_size,
+                                                     size_t image_size,
+                                                     FirmwareImage_SignedManifest *manifest) {
+    uint32_t payload_size;
+
+    if ((image == NULL) || (manifest == NULL)) {
+        return FIRMWARE_IMAGE_STATUS_INVALID_ARGUMENT;
+    }
+    if (header_size < FIRMWARE_IMAGE_SIGNED_HEADER_SIZE ||
+        image_size < FIRMWARE_IMAGE_SIGNED_HEADER_SIZE) {
         return FIRMWARE_IMAGE_STATUS_TRUNCATED;
     }
     if ((image[0] != (uint8_t)FIRMWARE_IMAGE_MAGIC_0) ||
@@ -201,7 +216,6 @@ FirmwareImage_Status FirmwareImage_ParseSignedHeader(const uint8_t *image, size_
     manifest->signature_algorithm = image[43];
     manifest->key_id = FirmwareImage_ReadU32(&image[44]);
     (void)memcpy(manifest->signature, &image[80], FIRMWARE_IMAGE_SIGNATURE_SIZE);
-    *payload = &image[FIRMWARE_IMAGE_SIGNED_HEADER_SIZE];
     return FIRMWARE_IMAGE_STATUS_OK;
 }
 

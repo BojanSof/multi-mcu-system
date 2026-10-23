@@ -19,19 +19,23 @@ option(MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO
 option(MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO
        "Build the opt-in STM32 custom bootloader recovery/update client" OFF)
 option(MULTI_MCU_PHASE9_CONTROL "Build the opt-in MCUmanager host control group" OFF)
+option(MULTI_MCU_PHASE10_UPDATE "Build PC-streamed STM32 updates and supervision" OFF)
 
 # Sysbuild stores image-scoped command-line values as properties; plain option()
 # does not import them into the child application's CMake cache.
 if(SYSBUILD)
     foreach(profile_option MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO
                            MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO
-                           MULTI_MCU_PHASE9_CONTROL)
+                           MULTI_MCU_PHASE9_CONTROL MULTI_MCU_PHASE10_UPDATE)
         unset(profile_value)
         zephyr_get(profile_value VAR ${profile_option})
         if(DEFINED profile_value)
             set(${profile_option} "${profile_value}" CACHE BOOL "Selected firmware profile" FORCE)
         endif()
     endforeach()
+endif()
+if(MULTI_MCU_PHASE10_UPDATE AND NOT MULTI_MCU_PHASE9_CONTROL)
+    message(FATAL_ERROR "Phase 10 requires Phase 9 control")
 endif()
 if(MULTI_MCU_PHASE9_CONTROL AND MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO)
     message(FATAL_ERROR "Phase 9 control and Phase 7 demo are independent profiles")
@@ -71,6 +75,11 @@ if(MULTI_MCU_PHASE9_CONTROL)
     endif()
     target_sources(app PRIVATE src/control/HostControl.c)
     target_compile_definitions(app PRIVATE MULTI_MCU_PHASE9_CONTROL=1)
+endif()
+if(MULTI_MCU_PHASE10_UPDATE)
+    target_sources(app PRIVATE src/control/HostUpdateAdapter.c src/bootloader/HostStmUpdate.c)
+    target_compile_definitions(app PRIVATE MULTI_MCU_PHASE10_UPDATE=1)
+    target_compile_options(app PRIVATE -fstack-usage)
 endif()
 
 target_include_directories(app PRIVATE

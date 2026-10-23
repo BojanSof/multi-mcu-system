@@ -31,7 +31,9 @@ Use the Nordic J-Link VCOM shown by device discovery; close any log terminal usi
 that port. Existing STM firmware and the five application wires suffice for this
 phase. The CLI owns the Nordic serial connection while executing. See
 [docs/CLI.md](docs/CLI.md) for operations and expected results. Additional reset/BOOT0
-wires and automated STM updates belong to Phases 10–11.
+wires and streamed signed STM updates are available in the separate `phase10`
+profile. See [Phase 10 testing](docs/PHASE_10_TESTING.md) for wiring gates and
+root-directory build/flash/update commands. Factory-ROM repair is Phase 11.
 
 ## Local setup
 

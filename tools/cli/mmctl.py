@@ -17,8 +17,10 @@ from serial.tools import list_ports
 
 try:
     from .smp import SmpClient, SmpError, SmpTimeout
+    from . import stm
 except ImportError:
     from smp import SmpClient, SmpError, SmpTimeout
+    import stm
 
 
 def number(value: str) -> int:
@@ -363,9 +365,14 @@ def parser():
     confirm.add_argument("hash", nargs="?")
     images.add_parser("reset")
     stm = commands.add_parser("stm").add_subparsers(dest="stm_action", required=True)
-    for action in ("update", "recover"):
-        unavailable = stm.add_parser(action)
-        unavailable.add_argument("firmware", nargs="?")
+    stm.add_parser("status")
+    stm.add_parser("abort")
+    stm.add_parser("recover").add_argument("firmware", nargs="?")
+    inspect = stm.add_parser("image").add_subparsers(dest="stm_image_action", required=True)
+    for image in (stm.add_parser("update"), inspect.add_parser("inspect")):
+        image.add_argument("firmware", type=pathlib.Path)
+        image.add_argument("--public-key", type=pathlib.Path, required=True)
+        image.add_argument("--key-id", type=number, default=1)
     return root
 
 
@@ -391,6 +398,7 @@ def parse_args(argv=None):
 
 def requires_yes(args):
     return (args.command == "service" or
+            (args.command == "stm" and args.stm_action in ("update", "abort", "recover")) or
             (args.command == "node" and args.node_action not in ("status", "versions")) or
             (args.command == "diagnostics" and args.diagnostic_action in ("inject", "clear")) or
             (args.command == "host" and args.image_action != "list"))
@@ -422,7 +430,16 @@ def execute(client, args):
             raise SmpError("diagnostic drain limit reached; run diagnostics records again")
     elif args.command == "node":
         if args.node_action == "reset":
-            raise SmpError("physical reset is unavailable until Phase 10")
+            job = stm.mutate(client, 4, "reset")
+            deadline = time.monotonic() + 40
+            while time.monotonic() < deadline:
+                result = stm.status(client, job)
+                stm.check_failure(result)
+                if result.get("state") == "complete":
+                    emit(result, args.json)
+                    return
+                time.sleep(0.1)
+            raise stm.Indeterminate("reset timed out; use 'stm status'")
         if args.node_action in ("status", "versions"):
             command = 1 if args.node_action == "status" else 4
         else:
@@ -452,6 +469,16 @@ def execute(client, args):
                 time.sleep(0.2)
     elif args.command == "host":
         host_command(client, args)
+    elif args.command == "stm":
+        if args.stm_action == "status":
+            emit(stm.status(client), args.json)
+        elif args.stm_action == "abort":
+            current = stm.status(client)
+            if not current.get("active"):
+                raise SmpError("no active STM job")
+            emit({"job": stm.mutate(client, 5, "abort", current["job"])}, args.json)
+        elif args.stm_action == "update":
+            stm.update(client, args, emit)
 
 
 def main(argv=None):
@@ -460,10 +487,18 @@ def main(argv=None):
         if args.command == "device":
             emit({"devices": devices()}, args.json)
             return 0
-        if args.command == "stm":
-            raise SmpError("STM update/recover is unavailable until Phases 10/11")
+        if args.command == "stm" and args.stm_action == "recover":
+            raise SmpError("factory ROM recovery is unavailable until Phase 11")
         if requires_yes(args) and not args.yes:
             raise SmpError("this command requires --yes")
+        if args.command == "stm":
+            if args.stm_action == "recover":
+                raise SmpError("factory ROM recovery is unavailable until Phase 11")
+            if args.stm_action in ("image", "update"):
+                args.stm_preflight = stm.preflight(args.firmware, args.public_key, args.key_id)
+                if args.stm_action == "image":
+                    emit(args.stm_preflight[1], args.json)
+                    return 0
         port = select_port(args.port, devices())
         with open_serial(port, args.baud, args.timeout) as connection:
             log = (lambda line: print(line.decode("utf-8", errors="replace"), file=sys.stderr)) if args.logs else None
@@ -473,6 +508,10 @@ def main(argv=None):
                 if status.get("api") != 1:
                     raise SmpError(f"unsupported control API: {status.get('api')}")
                 client.host_boot_id = status.get("host_boot_id")
+                if (args.command == "stm" or
+                        (args.command == "node" and args.node_action == "reset")):
+                    if not status.get("stm_update") or not status.get("supervision"):
+                        raise SmpError("command requires Phase 10 supervision/update firmware")
             execute(client, args)
         return 0
     except KeyboardInterrupt:

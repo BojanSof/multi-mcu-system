@@ -49,21 +49,35 @@ Phase 2. Do not change STM option bytes.
 
 References:
 
-## Planned supervision extension (Phase 10; not enabled in Phase 9)
+## Supervision extension (Phase 10 only)
 
-Approved candidates are P1.08 (physical P1 header pin 11) to STM CN7 pin 14 NRST,
-and P1.14 (physical P1 header pin 17) to STM CN7 pin 7 BOOT0. P1.08 is also DK
-button2; pressing it would reset STM. P1.14 is LED3; it would indicate BOOT0.
-Disable their other software consumers and verify exact-revision schematic loading,
-reset defaults and Nordic startup errata before physical connection. NRST must
-only sink low or release high-Z; BOOT0 uses the STM pull-down as its safe default.
-The accepted plan does not authorize enabling unverified GPIO drivers. Continue
-using the current five-wire connection until the Phase 10 wiring gate is published.
+| Signal | Nordic | STM | Driver |
+|---|---|---|---|
+| NRST | P1.08, physical P1 pin 11 | CN7 pin 14 | open-drain low or released high-Z |
+| BOOT0 | P1.14, physical P1 pin 17 | CN7 pin 7 | low in Phase 10; input on Nordic reset |
+
+Source check: PCA10156 1.0.0 schematic sheets 5/7 show P1.08 connected to SW5
+(button2) directly to ground, so it is compatible with open-drain reset. P1.14
+connects to the LED3 transistor gate, not directly to its LED supply; R27 is a
+1 MOhm gate pull-down. The profile disables button2/led3 software consumers.
+Button2 physically resets STM; LED3 stays off because Phase 10 never asserts BOOT0.
+ST UM3256 Rev 2 table 11 confirms CN7 pins 14/7 and BOOT0 default low.
+
+PCA10156 1.0.0 hardware files identify QFAAC00 (SoC revision 2). Nordic anomaly
+100's P1.08/P1.14 analog-short issue is documented for revision 1; do not extrapolate
+this wiring approval to engineering/revision-1 boards or modified assemblies.
+Verify board/SoC marking if different from the recorded kit.
+
+Documentation/source gate is checked; physical wiring and default levels still
+require the human checklist in WIRING.md. No option bytes are changed. Normal
+and Phase 9 profiles do not initialize these supervision outputs.
 
 ## Source links
 
 - https://docs.nordicsemi.com/r/bundle/ug_nrf54l15_dk/page/ug/nrf54l15_dk/hw_desription/connector_if.html
 - https://docs.nordicsemi.com/r/bundle/ug_nrf54l15_dk/page/ug/nrf54l15_dk/hw_desription/power_supply.html
 - https://www.nordicsemi.com/Products/Development-hardware/nRF54L15-DK/Hardware-files
+- https://nsscprodmedia.blob.core.windows.net/prod/software-and-other-downloads/dev-kits/nrf54l15-dk/pca10156-nrf54l15-dk-1_0_0.zip
+- https://docs.nordicsemi.com/r/bundle/errata_nrf54l15_rev1/page/err/nrf54l15/rev1/latest/anomaly_l15_100.html
 - https://www.st.com/resource/en/user_manual/um3256-stm32-nucleo64-boards-mb1932-stmicroelectronics.pdf
 - https://www.st.com/resource/en/schematic_pack/mb1932-u083rc-b01-schematic.pdf

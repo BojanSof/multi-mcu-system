@@ -24,3 +24,22 @@ preventing a clean Nordic boot. If the order is reversed accidentally, disconnec
 for several seconds and restart Nordic-first. Keep each debug VCP open separately. A correct startup
 proceeds through READY, HELLO, identity and capability discovery. If discovery fails, remove USB
 power before moving wires; never probe by shorting a signal to a supply rail.
+
+## Phase 10 supervision addition
+
+Only for the exact revisions/3.3 V gate recorded in PINOUT.md:
+
+1. Disconnect both USB supplies. Keep the five existing wires unchanged.
+2. Remove any STM BOOT0-to-VDD jumper (CN7 pins 5–7). Never connect that jumper
+   while Nordic drives BOOT0 low.
+3. Add Nordic physical P1 pin 11 (P1.08) to STM CN7 pin 14 (NRST).
+4. Add Nordic physical P1 pin 17 (P1.14) to STM CN7 pin 7 (BOOT0).
+5. Inspect header numbering. No VDD/3.3 V/5 V rail connections.
+6. Use the phase10 Nordic profile. Power Nordic first, then STM. Before requesting
+   reset/update, verify BOOT0 is low and released NRST is near STM VDD. If not,
+   disconnect power and check wiring; do not proceed to flashing.
+
+DK button2 now physically resets STM; its normal software input and LED3 output
+are disabled. BOOT0 stays low in Phase 10. A command sinks NRST for 20 ms then
+releases it; it never drives NRST high. Retain independent SWD and logging ports.
+Do not run an older profile that repurposes these pins while supervision is wired.

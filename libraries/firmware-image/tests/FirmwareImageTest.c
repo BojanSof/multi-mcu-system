@@ -224,6 +224,18 @@ static int Test_SignedImage(void) {
     CHECK(manifest.slot_id == FIRMWARE_IMAGE_SLOT_1 && manifest.key_id == 1U);
     CHECK(manifest.manifest.load_address == FIRMWARE_IMAGE_STM32_SLOT1_VECTOR_ADDRESS);
     CHECK(manifest.signature[0] == 1U && manifest.signature[63] == 64U);
+    uint8_t header_only[FIRMWARE_IMAGE_SIGNED_HEADER_SIZE];
+    memcpy(header_only, image, sizeof(header_only));
+    CHECK(FirmwareImage_ParseSignedPrefix(header_only, sizeof(header_only), sizeof(image),
+                                          &manifest) == FIRMWARE_IMAGE_STATUS_OK);
+    CHECK(FirmwareImage_ParseSignedPrefix(header_only, sizeof(header_only) - 1U, sizeof(image),
+                                          &manifest) == FIRMWARE_IMAGE_STATUS_TRUNCATED);
+    CHECK(FirmwareImage_ParseSignedPrefix(header_only, sizeof(header_only), sizeof(image) - 1U,
+                                          &manifest) == FIRMWARE_IMAGE_STATUS_SIZE_MISMATCH);
+    CHECK(FirmwareImage_ParseSignedPrefix(header_only, sizeof(header_only), 0U, &manifest) ==
+          FIRMWARE_IMAGE_STATUS_TRUNCATED);
+    CHECK(FirmwareImage_ParseSignedPrefix(NULL, sizeof(header_only), sizeof(image), &manifest) ==
+          FIRMWARE_IMAGE_STATUS_INVALID_ARGUMENT);
     CHECK(FirmwareImage_ValidateSignedCompatibility(&manifest, &compatibility) ==
           FIRMWARE_IMAGE_STATUS_OK);
     CHECK(FirmwareImage_GetCanonicalSignedBytes(image, sizeof(image), &canonical,

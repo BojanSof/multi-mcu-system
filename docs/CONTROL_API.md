@@ -11,8 +11,8 @@ unless explicitly stated. API version is 1. Normal profile remains selectable;
 | 1 services | read | empty map | `services`: maps with `id`, `major`, `minor`, `flags` |
 | 2 call | write | `expected_boot_id` u32, `request_id` u64 nonzero, `service` u16, `command` u16, `data` bytes | `request_id`, `operation` u32; or `error` text |
 | 3 events | read | `after` u32 (default 0) | `host_boot_id`, `events`: retained records newer than cursor; `dropped`, `latest` |
-| 4 supervision | write | reserved for Phase 10 | unsupported |
-| 5 STM update | write | reserved for Phase 10 | unsupported |
+| 4 supervision | read/write | Phase 10 contract below | job status/admission |
+| 5 STM update | read/write | Phase 10 contract below | job status/admission |
 | 6 ROM recovery | write | reserved for Phase 11 | unsupported |
 
 An event record contains `id`, `time_ms`, `session`, `operation`, `service`,
@@ -55,4 +55,52 @@ actuator start [--duration-ms]; events watch; diagnostics status|inject|clear|re
 node maintenance enter|exit, shutdown enter|exit; generic service call;
 node status|versions;
 host image list|upload|test|confirm|reset|update. Dangerous commands require --yes.
-STM update/recover and physical reset report unavailable until their phases land.
+STM update and physical reset require the independently selectable `phase10`
+profile; ROM recovery remains unavailable until Phase 11.
+
+## Phase 10 additive contract (API v1)
+
+Status command 0 adds `supervision` and `stm_update` booleans. Commands 4/5
+return unsupported in Phase 9. All Phase 10 writes require nonzero `request_id`
+u64 and `expected_boot_id` u32. Only the main thread touches GPIO/UART; update
+and runtime service calls are mutually exclusive.
+
+Command 4 write accepts `action:"reset"`. Command 5 write accepts:
+
+| Action | Additional fields |
+|---|---|
+| `begin` | `header`: exactly 512 bytes of signed MMFW v2; `total`: whole package size u32 |
+| `chunk` | `job`: u64; `offset`: u32; `data`: 1–256 bytes |
+| `finish` | `job`: u64 |
+| `abort` | `job`: u64 |
+
+Write replies contain `request_id` and `job` (begin/reset request ID). This is
+admission, not an STM acknowledgment. Exact retries return the cached admission;
+changed arguments return `request_conflict`. Eight admissions are retained, with
+the current begin/reset additionally pinned. Never replay across a host restart.
+
+Reads of either command return `host_boot_id`, `job`, `state`, `offset`, `total`,
+`slot`, `confirmed_slot`, `boot_state`, `protocol`, `error`, `active`. Slots use
+255 for unknown. `error` here is a **signed numeric** status, zero on success;
+domain rejection replies instead have textual `error`. Boot state follows the
+STM journal: 1 confirmed, 2 pending, 3 trial, 4 invalid, 5 recovery.
+
+States: idle, querying, erasing, ready, writing, finalizing, pending, booting,
+verifying, returning, complete, rolled_back, failed, aborted. `offset` advances
+only after STM ACK (including the two 256-byte header chunks). The begin job/total
+are visible immediately after admission. Initial idle status does not query STM
+and has unknown slots; `confirmed_slot` is populated by an update's boot query.
+
+Before reset, validate header bounds, target, slot/link address and compatibility.
+Before erase, query the journal and reject confirmed, selected or pending slots.
+PC validates the complete signature/hash against its supplied trusted key before
+opening serial; STM independently validates before setting pending. No whole-image
+staging on Nordic. Runtime discovery is restarted after boot-UART ownership ends.
+
+Thirty seconds without transfer progress before commit aborts and returns to the
+confirmed application; status polls do not keep a transfer alive. After SET_PENDING
+may have been transmitted, cancellation is rejected and verification continues even
+if PC disconnects. Boot the trial, query the journal after another reset, require
+confirmed target (or report confirmed previous slot as rollback), then rediscover
+runtime before terminal success. Lost commit ACK is an uncertain outcome to verify,
+not permission to replay. GPIO reset is open-drain; BOOT0 stays low throughout.

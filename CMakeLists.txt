@@ -26,4 +26,5 @@ add_subdirectory(libraries/boot-protocol)
 
 if(BUILD_TESTING)
     add_subdirectory(firmware/nrf54l15-host/tests)
+    add_subdirectory(firmware/nrf54l15-host/tests/update)
 endif()

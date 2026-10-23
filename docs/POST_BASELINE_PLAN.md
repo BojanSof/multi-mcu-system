@@ -24,6 +24,10 @@ HIL gate: actual runtime operations, progress/completion and Nordic upload/test/
 
 ## Phase 10 — Supervised signed STM A/B updates
 
+Status (2026-10-23): software implemented and native/firmware builds verified;
+physical acceptance pending. See `PHASE_REPORTS/PHASE_10.md` and
+`PHASE_10_TESTING.md`. Phase 11 has not started.
+
 Approved GPIO candidates: Nordic P1.08 (physical header P1 pin 11) to STM CN7 pin 14
 NRST; Nordic P1.14 (physical P1 pin 17) to STM CN7 pin 7 BOOT0. Verify exact-revision
 schematics, LED/button loading and Nordic startup errata before enabling physical

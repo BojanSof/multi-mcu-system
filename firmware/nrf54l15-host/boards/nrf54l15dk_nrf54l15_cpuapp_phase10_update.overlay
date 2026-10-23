@@ -1,0 +1,8 @@
+/ {
+    zephyr,user {
+        node-reset-gpios = <&gpio1 8 GPIO_ACTIVE_LOW>;
+        node-boot-gpios = <&gpio1 14 GPIO_ACTIVE_HIGH>;
+    };
+};
+&button2 { status = "disabled"; };
+&led3 { status = "disabled"; };

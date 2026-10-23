@@ -69,3 +69,8 @@ jobs:
         run: |
           source ./.env.local
           scripts/build/build_nordic.sh --profile phase9
+
+      - name: Build Nordic streamed STM update profile
+        run: |
+          source ./.env.local
+          scripts/build/build_nordic.sh --profile phase10

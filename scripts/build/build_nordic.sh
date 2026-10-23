@@ -13,6 +13,7 @@ Profiles:
   default        Normal host firmware (default)
   phase6         MCUboot/MCUmgr firmware
   phase9         MCUboot/MCUmgr host control API for scripts/mmctl
+  phase10        Host control plus streamed STM32 A/B update and remote reset
   phase7-query   STM bootloader query client
   phase7-update  STM bootloader update client; requires --stm-image
 
@@ -41,7 +42,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$profile" in
-    default|phase6|phase9|phase7-query|phase7-update) ;;
+    default|phase6|phase9|phase10|phase7-query|phase7-update) ;;
     *) echo "error: unknown profile: $profile" >&2; exit 2 ;;
 esac
 
@@ -88,6 +89,16 @@ case "$profile" in
             -DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay \
             -DSB_EXTRA_CONF_FILE="$source_dir/sysbuild_phase6_mcumgr.conf"
         ;;
+    phase10)
+        build_dir="$repo_root/build/nrf54l15-host-phase10"
+        "$west_command" build -p always -b "$board" "$source_dir" \
+            --build-dir "$build_dir" -- \
+            -Dnrf54l15-host_MULTI_MCU_PHASE9_CONTROL=ON \
+            -Dnrf54l15-host_MULTI_MCU_PHASE10_UPDATE=ON \
+            '-DEXTRA_CONF_FILE=phase6_mcumgr.conf;phase9_control.conf;phase10_update.conf' \
+            '-DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay;boards/nrf54l15dk_nrf54l15_cpuapp_phase10_update.overlay' \
+            -DSB_EXTRA_CONF_FILE="$source_dir/sysbuild_phase6_mcumgr.conf"
+        ;;
     phase7-query)
         build_dir="$repo_root/build/nrf54l15-host-phase7-query"
         "$west_command" build -p always --no-sysbuild -b "$board" "$source_dir" \
@@ -111,7 +122,7 @@ case "$profile" in
         ;;
 esac
 
-if [ "$profile" = phase9 ]; then
+if [ "$profile" = phase9 ] || [ "$profile" = phase10 ]; then
     application_dir="$build_dir/nrf54l15-host"
     if ! grep -q '^MULTI_MCU_PHASE9_CONTROL:BOOL=ON$' "$application_dir/CMakeCache.txt"; then
         echo "error: Phase 9 control was not enabled in the application image" >&2
@@ -121,6 +132,19 @@ if [ "$profile" = phase9 ]; then
         echo "error: Phase 9 control handler is missing from the linked firmware" >&2
         exit 1
     fi
+fi
+
+if [ "$profile" = phase10 ]; then
+    if ! grep -q '^MULTI_MCU_PHASE10_UPDATE:BOOL=ON$' "$application_dir/CMakeCache.txt"; then
+        echo "error: Phase 10 update was not enabled in the application image" >&2
+        exit 1
+    fi
+    for object in HostUpdateAdapter HostStmUpdate; do
+        if ! grep -q "$object.c.obj" "$application_dir/zephyr/zephyr.map"; then
+            echo "error: Phase 10 $object is missing from linked firmware" >&2
+            exit 1
+        fi
+    done
 fi
 
 echo "Built Nordic profile '$profile' in $build_dir"

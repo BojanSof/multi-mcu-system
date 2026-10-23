@@ -5,6 +5,7 @@
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/irq.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/ring_buffer.h>
 #include <zephyr/sys/util.h>
@@ -126,4 +127,17 @@ HostTransport_Stats HostTransport_GetStats(void) {
         .transmit_overflows = (uint32_t)atomic_get(&HostTransport_TransmitOverflows),
     };
     return stats;
+}
+
+void HostTransport_Flush(void) {
+#if DT_HAS_CHOSEN(multi_mcu_node_uart)
+    unsigned int key = irq_lock();
+    uart_irq_tx_disable(HostTransport_Uart);
+    ring_buf_reset(&HostTransport_TxRing);
+    ring_buf_reset(&HostTransport_RxRing);
+    uint8_t discarded[32];
+    while (uart_fifo_read(HostTransport_Uart, discarded, sizeof(discarded)) > 0) {
+    }
+    irq_unlock(key);
+#endif
 }
