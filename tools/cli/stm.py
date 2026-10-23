@@ -19,6 +19,15 @@ class Indeterminate(SmpError):
     """Execution may have occurred; never reconnect and replay."""
 
 
+class JobFailure(SmpError):
+    """Explicit same-job failure status, not a transport/identity failure."""
+
+    def __init__(self, current):
+        self.status = dict(current)
+        super().__init__(f"STM job {current.get('state')}: error={current.get('error')} "
+                         f"protocol={current.get('protocol')}; use 'stm status'")
+
+
 def preflight(path, public_key, key_id=1):
     from cryptography.hazmat.primitives.serialization import load_pem_public_key
     image = pathlib.Path(path).read_bytes()
@@ -66,8 +75,7 @@ def mutate(client, command, action, job=None, **fields):
 
 def check_failure(current):
     if current.get("state") in ("failed", "error", "aborted", "rolled_back") or current.get("error", 0):
-        raise SmpError(f"STM job {current.get('state')}: error={current.get('error')} "
-                       f"protocol={current.get('protocol')}; use 'stm status'")
+        raise JobFailure(current)
 
 
 def poll(client, job, deadline, total, minimum, maximum, predicate):

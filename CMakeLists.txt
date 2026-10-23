@@ -23,6 +23,7 @@ add_subdirectory(examples/virtual-io)
 add_subdirectory(libraries/diagnostics)
 add_subdirectory(libraries/firmware-image)
 add_subdirectory(libraries/boot-protocol)
+add_subdirectory(libraries/stm32-rom-boot)
 
 if(BUILD_TESTING)
     add_subdirectory(firmware/nrf54l15-host/tests)

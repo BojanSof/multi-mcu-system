@@ -13,4 +13,7 @@ bool HostUpdateAdapter_IsAvailable(void);
 int HostUpdateAdapter_StatusRead(struct smp_streamer *);
 int HostUpdateAdapter_ResetWrite(struct smp_streamer *);
 int HostUpdateAdapter_UpdateWrite(struct smp_streamer *);
+bool HostUpdateAdapter_RomAvailable(void);
+int HostUpdateAdapter_RomStatusRead(struct smp_streamer *);
+int HostUpdateAdapter_RomWrite(struct smp_streamer *);
 #endif

@@ -17,6 +17,7 @@ bool HostTransport_IsAvailable(void);
 size_t HostTransport_Read(uint8_t *data, size_t capacity);
 int HostTransport_Write(const uint8_t *data, size_t length);
 void HostTransport_Flush(void);
+int HostTransport_ConfigureRom(bool enabled);
 HostTransport_Stats HostTransport_GetStats(void);
 
 #endif

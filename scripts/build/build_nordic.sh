@@ -14,6 +14,7 @@ Profiles:
   phase6         MCUboot/MCUmgr firmware
   phase9         MCUboot/MCUmgr host control API for scripts/mmctl
   phase10        Host control plus streamed STM32 A/B update and remote reset
+  phase11        Phase 10 plus factory-ROM bootloader repair
   phase7-query   STM bootloader query client
   phase7-update  STM bootloader update client; requires --stm-image
 
@@ -42,7 +43,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$profile" in
-    default|phase6|phase9|phase10|phase7-query|phase7-update) ;;
+    default|phase6|phase9|phase10|phase11|phase7-query|phase7-update) ;;
     *) echo "error: unknown profile: $profile" >&2; exit 2 ;;
 esac
 
@@ -99,6 +100,17 @@ case "$profile" in
             '-DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay;boards/nrf54l15dk_nrf54l15_cpuapp_phase10_update.overlay' \
             -DSB_EXTRA_CONF_FILE="$source_dir/sysbuild_phase6_mcumgr.conf"
         ;;
+    phase11)
+        build_dir="$repo_root/build/nrf54l15-host-phase11"
+        "$west_command" build -p always -b "$board" "$source_dir" \
+            --build-dir "$build_dir" -- \
+            -Dnrf54l15-host_MULTI_MCU_PHASE9_CONTROL=ON \
+            -Dnrf54l15-host_MULTI_MCU_PHASE10_UPDATE=ON \
+            -Dnrf54l15-host_MULTI_MCU_PHASE11_ROM=ON \
+            '-DEXTRA_CONF_FILE=phase6_mcumgr.conf;phase9_control.conf;phase10_update.conf;phase11_rom.conf' \
+            '-DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay;boards/nrf54l15dk_nrf54l15_cpuapp_phase10_update.overlay' \
+            -DSB_EXTRA_CONF_FILE="$source_dir/sysbuild_phase6_mcumgr.conf"
+        ;;
     phase7-query)
         build_dir="$repo_root/build/nrf54l15-host-phase7-query"
         "$west_command" build -p always --no-sysbuild -b "$board" "$source_dir" \
@@ -122,7 +134,7 @@ case "$profile" in
         ;;
 esac
 
-if [ "$profile" = phase9 ] || [ "$profile" = phase10 ]; then
+if [ "$profile" = phase9 ] || [ "$profile" = phase10 ] || [ "$profile" = phase11 ]; then
     application_dir="$build_dir/nrf54l15-host"
     if ! grep -q '^MULTI_MCU_PHASE9_CONTROL:BOOL=ON$' "$application_dir/CMakeCache.txt"; then
         echo "error: Phase 9 control was not enabled in the application image" >&2
@@ -134,7 +146,7 @@ if [ "$profile" = phase9 ] || [ "$profile" = phase10 ]; then
     fi
 fi
 
-if [ "$profile" = phase10 ]; then
+if [ "$profile" = phase10 ] || [ "$profile" = phase11 ]; then
     if ! grep -q '^MULTI_MCU_PHASE10_UPDATE:BOOL=ON$' "$application_dir/CMakeCache.txt"; then
         echo "error: Phase 10 update was not enabled in the application image" >&2
         exit 1
@@ -145,6 +157,17 @@ if [ "$profile" = phase10 ]; then
             exit 1
         fi
     done
+fi
+
+if [ "$profile" = phase11 ]; then
+    if ! grep -q '^MULTI_MCU_PHASE11_ROM:BOOL=ON$' "$application_dir/CMakeCache.txt"; then
+        echo "error: Phase 11 ROM recovery was not enabled in the application image" >&2
+        exit 1
+    fi
+    if ! grep -q 'Stm32RomBoot.c.obj' "$application_dir/zephyr/zephyr.map"; then
+        echo "error: Phase 11 ROM library is missing from linked firmware" >&2
+        exit 1
+    fi
 fi
 
 echo "Built Nordic profile '$profile' in $build_dir"

@@ -9,6 +9,7 @@ list(APPEND EXTRA_ZEPHYR_MODULES
     "${MULTI_MCU_ROOT}/libraries/diagnostics"
     "${MULTI_MCU_ROOT}/libraries/boot-protocol"
     "${MULTI_MCU_ROOT}/libraries/firmware-image"
+    "${MULTI_MCU_ROOT}/libraries/stm32-rom-boot"
 )
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
@@ -20,13 +21,15 @@ option(MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO
        "Build the opt-in STM32 custom bootloader recovery/update client" OFF)
 option(MULTI_MCU_PHASE9_CONTROL "Build the opt-in MCUmanager host control group" OFF)
 option(MULTI_MCU_PHASE10_UPDATE "Build PC-streamed STM32 updates and supervision" OFF)
+option(MULTI_MCU_PHASE11_ROM "Build factory ROM bootloader repair" OFF)
 
 # Sysbuild stores image-scoped command-line values as properties; plain option()
 # does not import them into the child application's CMake cache.
 if(SYSBUILD)
     foreach(profile_option MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO
                            MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO
-                           MULTI_MCU_PHASE9_CONTROL MULTI_MCU_PHASE10_UPDATE)
+                           MULTI_MCU_PHASE9_CONTROL MULTI_MCU_PHASE10_UPDATE
+                           MULTI_MCU_PHASE11_ROM)
         unset(profile_value)
         zephyr_get(profile_value VAR ${profile_option})
         if(DEFINED profile_value)
@@ -36,6 +39,9 @@ if(SYSBUILD)
 endif()
 if(MULTI_MCU_PHASE10_UPDATE AND NOT MULTI_MCU_PHASE9_CONTROL)
     message(FATAL_ERROR "Phase 10 requires Phase 9 control")
+endif()
+if(MULTI_MCU_PHASE11_ROM AND NOT MULTI_MCU_PHASE10_UPDATE)
+    message(FATAL_ERROR "Phase 11 requires Phase 10")
 endif()
 if(MULTI_MCU_PHASE9_CONTROL AND MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO)
     message(FATAL_ERROR "Phase 9 control and Phase 7 demo are independent profiles")
@@ -80,6 +86,9 @@ if(MULTI_MCU_PHASE10_UPDATE)
     target_sources(app PRIVATE src/control/HostUpdateAdapter.c src/bootloader/HostStmUpdate.c)
     target_compile_definitions(app PRIVATE MULTI_MCU_PHASE10_UPDATE=1)
     target_compile_options(app PRIVATE -fstack-usage)
+endif()
+if(MULTI_MCU_PHASE11_ROM)
+    target_compile_definitions(app PRIVATE MULTI_MCU_PHASE11_ROM=1)
 endif()
 
 target_include_directories(app PRIVATE

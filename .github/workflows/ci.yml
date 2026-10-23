@@ -74,3 +74,8 @@ jobs:
         run: |
           source ./.env.local
           scripts/build/build_nordic.sh --profile phase10
+
+      - name: Build Nordic factory-ROM recovery profile
+        run: |
+          source ./.env.local
+          scripts/build/build_nordic.sh --profile phase11

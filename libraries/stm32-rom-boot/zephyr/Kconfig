@@ -1,0 +1,2 @@
+menu "Multi-MCU STM32 ROM boot protocol"
+endmenu

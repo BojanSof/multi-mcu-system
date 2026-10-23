@@ -201,7 +201,18 @@ void HostControl_Process(void) {
     HostControl_Status = HostNodeManager_GetStatus();
     HostControl_Busy = HostNodeManager_IsBusy() || HostControl_Queued;
 #if defined(MULTI_MCU_PHASE10_UPDATE)
+#if defined(MULTI_MCU_PHASE11_ROM)
+    /* A dead node's discovery retries must not prevent its ROM rescue. Keep
+     * actual operator work exclusive, but allow recovery to quiesce discovery. */
+    bool runtime_work = HostControl_Queued || HostControl_AsyncActuator.pending ||
+                        (HostControl_Status.state == HOST_LINK_ONLINE && HostControl_Busy);
+    for (size_t i = 0; i < HOST_CONTROL_CACHE_SIZE; ++i) {
+        runtime_work = runtime_work || HostControl_Cache[i].pending;
+    }
+    HostUpdateAdapter_SetRuntimeBusy(runtime_work);
+#else
     HostUpdateAdapter_SetRuntimeBusy(HostControl_Busy || HostControl_AsyncActuator.pending);
+#endif
 #endif
     k_mutex_unlock(&HostControl_Lock);
 }
@@ -212,6 +223,10 @@ static int HostControl_StatusRead(struct smp_streamer *stream) {
 
     k_mutex_lock(&HostControl_Lock, K_FOREVER);
     const HostNodeManager_Status *status = &HostControl_Status;
+    bool busy = HostControl_Busy;
+#if defined(MULTI_MCU_PHASE10_UPDATE)
+    busy = busy || HostUpdateAdapter_IsBusy();
+#endif
     if (status->session_generation == 0U ||
         status->node_versions_session != status->session_generation) {
         snprintf(firmware, sizeof(firmware), "unknown");
@@ -229,13 +244,17 @@ static int HostControl_StatusRead(struct smp_streamer *stream) {
               HostControl_Uint(state, "rejected", status->rejected_responses) &&
               HostControl_Uint(state, "received_events", status->received_events) &&
               HostControl_Uint(state, "dropped", HostControl_Dropped) &&
-              zcbor_tstr_put_lit(state, "busy") && zcbor_bool_put(state, HostControl_Busy) &&
+              zcbor_tstr_put_lit(state, "busy") && zcbor_bool_put(state, busy) &&
               HostControl_Text(state, "firmware", firmware);
 #if defined(MULTI_MCU_PHASE10_UPDATE)
     ok = ok && zcbor_tstr_put_lit(state, "supervision") &&
          zcbor_bool_put(state, HostUpdateAdapter_IsAvailable()) &&
          zcbor_tstr_put_lit(state, "stm_update") &&
          zcbor_bool_put(state, HostUpdateAdapter_IsAvailable());
+#if defined(MULTI_MCU_PHASE11_ROM)
+    ok = ok && zcbor_tstr_put_lit(state, "rom_recovery") &&
+         zcbor_bool_put(state, HostUpdateAdapter_RomAvailable());
+#endif
 #endif
     k_mutex_unlock(&HostControl_Lock);
     return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
@@ -393,9 +412,11 @@ static int HostControl_EventsRead(struct smp_streamer *stream) {
     return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
 }
 
+#if !defined(MULTI_MCU_PHASE11_ROM)
 static int HostControl_Unsupported(struct smp_streamer *stream) {
     return HostControl_Error(stream->writer->zs, "unsupported");
 }
+#endif
 
 static const struct mgmt_handler HostControl_Handlers[] = {
     [0] = {.mh_read = HostControl_StatusRead},
@@ -408,7 +429,11 @@ static const struct mgmt_handler HostControl_Handlers[] = {
 #else
     [4] = {.mh_write = HostControl_Unsupported}, [5] = {.mh_write = HostControl_Unsupported},
 #endif
+#if defined(MULTI_MCU_PHASE11_ROM)
+    [6] = {.mh_read = HostUpdateAdapter_RomStatusRead, .mh_write = HostUpdateAdapter_RomWrite},
+#else
     [6] = {.mh_write = HostControl_Unsupported},
+#endif
 };
 
 static struct mgmt_group HostControl_Group = {.mg_handlers = HostControl_Handlers,

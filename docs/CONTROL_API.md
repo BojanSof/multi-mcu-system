@@ -13,7 +13,7 @@ unless explicitly stated. API version is 1. Normal profile remains selectable;
 | 3 events | read | `after` u32 (default 0) | `host_boot_id`, `events`: retained records newer than cursor; `dropped`, `latest` |
 | 4 supervision | read/write | Phase 10 contract below | job status/admission |
 | 5 STM update | read/write | Phase 10 contract below | job status/admission |
-| 6 ROM recovery | write | reserved for Phase 11 | unsupported |
+| 6 ROM recovery | read/write | Phase 11 contract below | recovery status/admission |
 
 An event record contains `id`, `time_ms`, `session`, `operation`, `service`,
 `code`, `kind` (text: response/event/error), `status`, `data` (bytes).
@@ -104,3 +104,50 @@ if PC disconnects. Boot the trial, query the journal after another reset, requir
 confirmed target (or report confirmed previous slot as rollback), then rediscover
 runtime before terminal success. Lost commit ACK is an uncertain outcome to verify,
 not permission to replay. GPIO reset is open-drain; BOOT0 stays low throughout.
+
+## Phase 11 ROM repair (API v1)
+
+Independent `phase11` profile extends Phase 10 and adds `rom_recovery` status
+capability. Prior profiles reject command6. ROM is an unauthenticated rescue path;
+normal signed update remains command5. No automatic ROM entry on runtime faults.
+
+Command6 writes require request_id u64 nonzero and expected_boot_id u32, with exact
+admission replay cache and stale-boot rejection as in Phase 10:
+
+| Action | Additional fields |
+|---|---|
+| `begin` | `total` u32 (8..65536), `sha256` bytes32, `prerequisites:true` |
+| `chunk` | `job` u64, `offset` u32, `data` bytes1..256 |
+| `finish` | `job` u64 |
+| `abort` | `job` u64 |
+
+Begin assertion confirms human checks of wiring, supply levels, boot selection,
+protection and SWD rescue. It is not hardware measurement. Admission replies contain
+request_id/job. Command6 read returns Phase 10 status fields plus device_id and
+rom_version; numeric error is distinct from textual domain errors. Only one
+runtime/reset/update/repair owner. Initial job/total are visible immediately; status
+remains readable while main executes bounded ROM transactions.
+
+Repair selects 115200 8E1, BOOT0 high and open-drain NRST pulse, then sync/GET/GET_ID.
+Require device 0x489 and READ/WRITE/EXTENDED_ERASE before erase. Explicit erase list:
+pages0..31 (2 KiB); writes/reads restricted to 0x08000000..0x0800ffff. No mass erase,
+GO, option-byte/protection commands. Chunks contiguous with 8-byte aligned offsets;
+short chunk only at end, FF-padded to 8 bytes. Offset advances only after ACK and
+exact readback including padding. SHA256 covers original image bytes, not padding.
+
+Finish requires total and streaming hash match; restore BOOT0 low, UART8N1, reset
+and restart runtime discovery. `complete` confirms raw loader readback/hash, not
+application boot. Errors, abort or 30-second transfer inactivity also restore
+pins/UART, but explicitly report the possibly partial loader. Status polls do not
+extend inactivity. No mutation replay/reconnect across host boot.
+If restoration itself fails, latch `failed, active:true` and retain UART ownership;
+runtime traffic stays blocked. Only explicit `abort` retries restoration, without
+automatic repeated resets. Its numeric error reports the restoration failure.
+
+CLI recover validates release v2, all hashes, loader vectors/bounds, both signed
+slot signatures/key IDs/compatibility and Nordic signed image offline. After repair,
+wait for compatible runtime with a fresh session; stale cached online never counts.
+If absent, chain signed Slot0 command5 recovery. On definite -18/protocol6 protected
+Slot0 refusal only, same-boot/job checks and ownership release permit a new signed
+Slot1 job; its journal guards remain authoritative. Never fallback on uncertainty
+or erase metadata. Nordic firmware is not updated as a side effect of STM repair.

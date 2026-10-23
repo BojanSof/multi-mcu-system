@@ -43,3 +43,16 @@ DK button2 now physically resets STM; its normal software input and LED3 output
 are disabled. BOOT0 stays low in Phase 10. A command sinks NRST for 20 ms then
 releases it; it never drives NRST high. Retain independent SWD and logging ports.
 Do not run an older profile that repurposes these pins while supervision is wired.
+
+## Phase 11 factory-ROM mode
+
+No additional wires. The explicit `phase11` recovery command alone drives BOOT0
+high, pulses open-drain NRST and changes application UART to 115200 8E1. LED3
+indicates BOOT0 high. On finish/abort/error it restores BOOT0 low, 8N1 and reset;
+if restoration fails, runtime ownership remains blocked pending explicit recovery.
+Before enabling, manually verify NBOOT_SEL=0, nBOOT1=1, BOOT_LOCK=0 and unprotected
+bootloader read/program access. Do not change option bytes or protection in software.
+See ../docs/PHASE_11_TESTING.md for the read-only check and operator assertion flag.
+Keep other STM UART interfaces idle during ROM selection; never type into its log
+terminal or run CubeProgrammer concurrently with a ROM transfer. Nordic SMP VCOM
+remains independent, 8N1 with hardware flow control.

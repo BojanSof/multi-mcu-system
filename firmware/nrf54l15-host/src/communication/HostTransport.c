@@ -141,3 +141,26 @@ void HostTransport_Flush(void) {
     irq_unlock(key);
 #endif
 }
+
+int HostTransport_ConfigureRom(bool enabled) {
+#if DT_HAS_CHOSEN(multi_mcu_node_uart) && defined(CONFIG_UART_USE_RUNTIME_CONFIGURE)
+    struct uart_config config;
+    int result = uart_config_get(HostTransport_Uart, &config);
+    if (result != 0) {
+        return result;
+    }
+    HostTransport_Flush();
+    uart_irq_rx_disable(HostTransport_Uart);
+    config.baudrate = 115200U;
+    config.parity = enabled ? UART_CFG_PARITY_EVEN : UART_CFG_PARITY_NONE;
+    config.stop_bits = UART_CFG_STOP_BITS_1;
+    config.data_bits = UART_CFG_DATA_BITS_8;
+    config.flow_ctrl = UART_CFG_FLOW_CTRL_NONE;
+    result = uart_configure(HostTransport_Uart, &config);
+    uart_irq_rx_enable(HostTransport_Uart);
+    return result;
+#else
+    ARG_UNUSED(enabled);
+    return -ENOTSUP;
+#endif
+}

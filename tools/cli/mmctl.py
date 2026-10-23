@@ -17,10 +17,11 @@ from serial.tools import list_ports
 
 try:
     from .smp import SmpClient, SmpError, SmpTimeout
-    from . import stm
+    from . import stm, rom
 except ImportError:
     from smp import SmpClient, SmpError, SmpTimeout
     import stm
+    import rom
 
 
 def number(value: str) -> int:
@@ -367,7 +368,14 @@ def parser():
     stm = commands.add_parser("stm").add_subparsers(dest="stm_action", required=True)
     stm.add_parser("status")
     stm.add_parser("abort")
-    stm.add_parser("recover").add_argument("firmware", nargs="?")
+    stm.add_parser("recover-status")
+    stm.add_parser("recover-abort")
+    recover = stm.add_parser("recover")
+    recover.add_argument("manifest", type=pathlib.Path, nargs="?")
+    recover.add_argument("--public-key", type=pathlib.Path)
+    recover.add_argument("--key-id", type=number, default=1)
+    recover.add_argument("--rom-prerequisites-verified", action="store_true",
+                         help="confirm manual boot options, 3.3 V wiring and SWD recovery")
     inspect = stm.add_parser("image").add_subparsers(dest="stm_image_action", required=True)
     for image in (stm.add_parser("update"), inspect.add_parser("inspect")):
         image.add_argument("firmware", type=pathlib.Path)
@@ -398,7 +406,7 @@ def parse_args(argv=None):
 
 def requires_yes(args):
     return (args.command == "service" or
-            (args.command == "stm" and args.stm_action in ("update", "abort", "recover")) or
+            (args.command == "stm" and args.stm_action in ("update", "abort", "recover", "recover-abort")) or
             (args.command == "node" and args.node_action not in ("status", "versions")) or
             (args.command == "diagnostics" and args.diagnostic_action in ("inject", "clear")) or
             (args.command == "host" and args.image_action != "list"))
@@ -479,6 +487,15 @@ def execute(client, args):
             emit({"job": stm.mutate(client, 5, "abort", current["job"])}, args.json)
         elif args.stm_action == "update":
             stm.update(client, args, emit)
+        elif args.stm_action == "recover-status":
+            emit(rom.status(client), args.json)
+        elif args.stm_action == "recover-abort":
+            current = rom.status(client)
+            if not current.get("active"):
+                raise SmpError("no active ROM recovery job")
+            emit({"job": rom.mutate(client, "abort", current["job"])}, args.json)
+        elif args.stm_action == "recover":
+            rom.recover(client, args, emit)
 
 
 def main(argv=None):
@@ -488,12 +505,16 @@ def main(argv=None):
             emit({"devices": devices()}, args.json)
             return 0
         if args.command == "stm" and args.stm_action == "recover":
-            raise SmpError("factory ROM recovery is unavailable until Phase 11")
+            if args.manifest is None or args.public_key is None:
+                raise SmpError("ROM recovery unavailable without MANIFEST and --public-key")
         if requires_yes(args) and not args.yes:
             raise SmpError("this command requires --yes")
         if args.command == "stm":
             if args.stm_action == "recover":
-                raise SmpError("factory ROM recovery is unavailable until Phase 11")
+                if not args.rom_prerequisites_verified:
+                    raise SmpError("ROM erase requires --rom-prerequisites-verified after manual boot option/wiring checks")
+                from firmware.release_bundle import load
+                args.rom_preflight = load(args.manifest, args.public_key, args.key_id)
             if args.stm_action in ("image", "update"):
                 args.stm_preflight = stm.preflight(args.firmware, args.public_key, args.key_id)
                 if args.stm_action == "image":
@@ -512,6 +533,8 @@ def main(argv=None):
                         (args.command == "node" and args.node_action == "reset")):
                     if not status.get("stm_update") or not status.get("supervision"):
                         raise SmpError("command requires Phase 10 supervision/update firmware")
+                    if args.command == "stm" and args.stm_action.startswith("recover") and not status.get("rom_recovery"):
+                        raise SmpError("command requires Phase 11 ROM recovery firmware")
             execute(client, args)
         return 0
     except KeyboardInterrupt:

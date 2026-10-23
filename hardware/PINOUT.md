@@ -54,7 +54,7 @@ References:
 | Signal | Nordic | STM | Driver |
 |---|---|---|---|
 | NRST | P1.08, physical P1 pin 11 | CN7 pin 14 | open-drain low or released high-Z |
-| BOOT0 | P1.14, physical P1 pin 17 | CN7 pin 7 | low in Phase 10; input on Nordic reset |
+| BOOT0 | P1.14, physical P1 pin 17 | CN7 pin 7 | low normally; high only for explicit Phase 11 ROM repair; input on Nordic reset |
 
 Source check: PCA10156 1.0.0 schematic sheets 5/7 show P1.08 connected to SW5
 (button2) directly to ground, so it is compatible with open-drain reset. P1.14

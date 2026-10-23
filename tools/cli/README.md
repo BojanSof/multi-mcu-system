@@ -72,4 +72,49 @@ It reports completion only after confirmation and rediscovery; rollback is a
 failure. After a timeout or USB disconnect, use `stm status` to inspect the job;
 the CLI never reconnects and replays an update. Ctrl-C attempts abort before the
 commit starts. Once `finish` has been sent, verification proceeds on the host.
-Factory-ROM recovery remains a Phase 11 command.
+Factory-ROM recovery uses the independently selectable `phase11` firmware and the
+same supervision wires. It is an **unauthenticated rescue path**, not a secure
+update mechanism. Before authorizing erase, manually verify `NBOOT_SEL=0`,
+`nBOOT1=1`, `BOOT_LOCK=0`, compatible 3.3 V levels, BOOT0/reset wiring and usable SWD
+recovery. The CLI never changes option bytes or protections.
+
+Prepare a release directory containing four artifacts: Nordic MCUboot signed bin,
+raw STM bootloader bin (not ELF/HEX), and two signed MMFW slot packages. Both slot
+package versions must match `--system-version`; Nordic firmware version is independent.
+Reuse the signing key matching the bootloader. Paths in the manifest are relative
+to its directory; staging all artifacts below that directory is required.
+
+```sh
+.venv/bin/python tools/firmware/release_bundle.py create build/phase11-release/release.json \
+  --nordic build/phase11-release/nordic.signed.bin \
+  --bootloader build/phase11-release/stm32-bootloader.bin \
+  --slot0 build/phase11-release/slot0.mmfw --slot1 build/phase11-release/slot1.mmfw \
+  --system-version 0.11.0 --public-key keys/stm32-dev-public.pem
+.venv/bin/python tools/firmware/release_bundle.py verify build/phase11-release/release.json \
+  --public-key keys/stm32-dev-public.pem
+scripts/mmctl stm recover build/phase11-release/release.json \
+  --public-key keys/stm32-dev-public.pem --yes --rom-prerequisites-verified
+scripts/mmctl stm recover-status
+scripts/mmctl stm recover-abort --yes
+```
+
+Every artifact is validated offline before serial is opened: schema/path/bounds,
+SHA-256, raw loader vectors, slot signatures/key IDs/versions and Nordic MCUboot
+hash/signature-TLV structure. A manifest hash is integrity, not authenticity: obtain
+the raw loader from a trusted matching-key build. Nordic signature authenticity is
+ultimately enforced by its MCUboot; ROM repair does not flash the Nordic artifact.
+
+Recovery enters ROM with 8E1, verifies device ID/capabilities, erases only the 64 KiB
+bootloader region and streams chunks with readback. Completion means the loader
+bytes/hash were verified; application recovery is reported separately. Healthy
+applications are preserved. If runtime stays offline, CLI chains the signed Slot 0
+update. Runtime success requires a nonzero session different from the pre-repair
+session; an old cached online snapshot is not accepted. A persistently stale online
+snapshot stops without signed mutations. Only a verified protected-Slot-0 failure
+permits a fresh Slot 1 job. The CLI never
+clears metadata or bypasses slot protection. Other errors stop without replay.
+
+Interrupted ROM writes may leave a partial loader. `recover-abort` restores BOOT0
+low, 8N1 and reset, but cannot undo an erased/programmed loader. Retry a full explicit
+recovery or use SWD; do not assume a working application can boot through a partial
+loader. Neither cable loss nor host restart triggers an automatic mutating reconnect.

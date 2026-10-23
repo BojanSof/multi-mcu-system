@@ -26,7 +26,8 @@ HIL gate: actual runtime operations, progress/completion and Nordic upload/test/
 
 Status (2026-10-23): software implemented and native/firmware builds verified;
 physical acceptance pending. See `PHASE_REPORTS/PHASE_10.md` and
-`PHASE_10_TESTING.md`. Phase 11 has not started.
+`PHASE_10_TESTING.md`. User confirmed reset and signed update after restoring
+the custom loader; extended interruption/rollback checks are not separately confirmed.
 
 Approved GPIO candidates: Nordic P1.08 (physical header P1 pin 11) to STM CN7 pin 14
 NRST; Nordic P1.14 (physical P1 pin 17) to STM CN7 pin 7 BOOT0. Verify exact-revision
@@ -44,6 +45,11 @@ commands. Disconnect/abort preserves confirmed firmware; uncertain reconnect que
 state before restarting. HIL: both slots, bad image/wrong slot, interruption and rollback.
 
 ## Phase 11 — Factory-ROM bootloader repair
+
+Status (2026-10-23): software implemented and native/firmware verification passed;
+user hardware normal-repair/runtime/sensor smoke passed; extended destructive
+acceptance pending. See `PHASE_REPORTS/PHASE_11.md` and the
+`PHASE_11_TESTING.md` manual gates. Phase 12 has not started.
 
 Add portable C11 `libraries/stm32-rom-boot`, CMake target
 `Stm32RomBoot::Stm32RomBoot`, native tests and Zephyr integration. AN3155 state

@@ -15,7 +15,8 @@ size_t HostTransport_Read(uint8_t *data, size_t capacity) {
     return 0;
 }
 void HostTransport_Flush(void) {}
-void HostNodeManager_Initialize(void) {}
+static unsigned Test_RuntimeRestartCount;
+void HostNodeManager_Initialize(void) { ++Test_RuntimeRestartCount; }
 HostNodeManager_Status HostNodeManager_GetStatus(void) {
     return (HostNodeManager_Status){.state = HOST_LINK_ONLINE};
 }

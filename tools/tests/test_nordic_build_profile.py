@@ -47,7 +47,9 @@ def test_phase9_build_requires_control_in_application(tmp_path, enabled, linked,
     (True, "HostStmUpdate", "Phase 10 HostStmUpdate is missing"),
     (True, "HostControl", "Phase 9 control handler is missing"),
 ])
-def test_phase10_build_flags_and_linked_objects(tmp_path, enabled, missing, error):
+@pytest.mark.parametrize("profile", ["phase10", "phase11"])
+def test_phase10_build_flags_and_linked_objects(tmp_path, enabled, missing, error, profile,
+                                               rom_enabled=True):
     root = pathlib.Path(__file__).resolve().parents[2]
     script = tmp_path / "scripts/build/build_nordic.sh"
     script.parent.mkdir(parents=True)
@@ -57,17 +59,23 @@ def test_phase10_build_flags_and_linked_objects(tmp_path, enabled, missing, erro
     version.write_text("3.4.1\n")
     linked = "\n".join(f"{name}.c.obj" for name in
                        ("HostControl", "HostUpdateAdapter", "HostStmUpdate") if name != missing)
+    if profile == "phase11" and missing != "Stm32RomBoot":
+        linked += "\nStm32RomBoot.c.obj"
     cache = ("MULTI_MCU_PHASE9_CONTROL:BOOL=ON\n"
+             f"MULTI_MCU_PHASE11_ROM:BOOL={'ON' if rom_enabled else 'OFF'}\n"
              f"MULTI_MCU_PHASE10_UPDATE:BOOL={'ON' if enabled else 'OFF'}\n")
     west = tmp_path / "fake-west"
+    rom_assertion = ("assert '-Dnrf54l15-host_MULTI_MCU_PHASE11_ROM=ON' in sys.argv\n"
+                     if profile == "phase11" else "")
     west.write_text(
         f"#!{sys.executable}\n"
         "import pathlib, sys\n"
         "assert '-Dnrf54l15-host_MULTI_MCU_PHASE9_CONTROL=ON' in sys.argv\n"
         "assert '-Dnrf54l15-host_MULTI_MCU_PHASE10_UPDATE=ON' in sys.argv\n"
+        + rom_assertion +
         "assert '-DMULTI_MCU_PHASE9_CONTROL=ON' not in sys.argv\n"
         "assert '-DMULTI_MCU_PHASE10_UPDATE=ON' not in sys.argv\n"
-        "assert '-DEXTRA_CONF_FILE=phase6_mcumgr.conf;phase9_control.conf;phase10_update.conf' in sys.argv\n"
+        f"assert '-DEXTRA_CONF_FILE=phase6_mcumgr.conf;phase9_control.conf;phase10_update.conf{';phase11_rom.conf' if profile == 'phase11' else ''}' in sys.argv\n"
         "assert '-DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay;boards/nrf54l15dk_nrf54l15_cpuapp_phase10_update.overlay' in sys.argv\n"
         "output = pathlib.Path(sys.argv[sys.argv.index('--build-dir') + 1]) / 'nrf54l15-host'\n"
         "(output / 'zephyr').mkdir(parents=True)\n"
@@ -75,9 +83,18 @@ def test_phase10_build_flags_and_linked_objects(tmp_path, enabled, missing, erro
         f"(output / 'zephyr/zephyr.map').write_text({linked!r})\n"
     )
     west.chmod(0o755)
-    result = subprocess.run([str(script), "--profile", "phase10"],
+    result = subprocess.run([str(script), "--profile", profile],
                             env={**os.environ, "WEST": str(west)},
                             capture_output=True, text=True)
     assert (result.returncode == 0) == (error is None), result.stderr
     if error:
         assert error in result.stderr
+
+
+@pytest.mark.parametrize("enabled,missing,error", [
+    (False, None, "Phase 11 ROM recovery was not enabled"),
+    (True, "Stm32RomBoot", "Phase 11 ROM library is missing"),
+])
+def test_phase11_requires_rom_option_and_linked_library(tmp_path, enabled, missing, error):
+    test_phase10_build_flags_and_linked_objects(tmp_path, True, missing, error,
+                                               "phase11", rom_enabled=enabled)
