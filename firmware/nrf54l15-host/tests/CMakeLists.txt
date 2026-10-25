@@ -29,5 +29,26 @@ if(EXISTS "${HOST_CONTROL_ZCBOR}/src/zcbor_encode.c")
         ../../../libraries/node-api/include ../../../examples/virtual-io/include
         "${HOST_CONTROL_ZCBOR}/include" "${HOST_CONTROL_MCUMGR}/util/include")
     add_test(NAME host_control_real_cbor COMMAND host_control_cbor_test)
+    add_executable(host_metrics_test HostMetricsTest.c
+        "${HOST_CONTROL_ZCBOR}/src/zcbor_common.c"
+        "${HOST_CONTROL_ZCBOR}/src/zcbor_encode.c"
+        "${HOST_CONTROL_ZCBOR}/src/zcbor_decode.c"
+        "${HOST_CONTROL_MCUMGR}/util/src/zcbor_bulk.c")
+    target_compile_features(host_metrics_test PRIVATE c_std_11)
+    target_compile_options(host_metrics_test PRIVATE -Wall -Wextra -Werror
+        -Wno-unused-function -Wno-pointer-sign -Wno-unused-but-set-variable -UNDEBUG)
+    get_target_property(METRICS_TEST_INCLUDES host_control_cbor_test INCLUDE_DIRECTORIES)
+    target_include_directories(host_metrics_test PRIVATE ${METRICS_TEST_INCLUDES})
+    add_test(NAME host_metrics_real_cbor COMMAND host_metrics_test)
 endif()
 add_subdirectory(adapter)
+if(TARGET Protocol::Protocol)
+    add_executable(host_manager_metrics_test manager/HostManagerMetricsTest.c)
+    target_compile_features(host_manager_metrics_test PRIVATE c_std_11)
+    target_compile_options(host_manager_metrics_test PRIVATE -Wall -Wextra -Werror
+        -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter -UNDEBUG)
+    target_include_directories(host_manager_metrics_test PRIVATE manager/stubs ../include)
+    target_link_libraries(host_manager_metrics_test PRIVATE Protocol::Protocol NodeApi::NodeApi
+        Diagnostics::Diagnostics VirtualIo::VirtualIo)
+    add_test(NAME host_manager_lifetime_metrics COMMAND host_manager_metrics_test)
+endif()

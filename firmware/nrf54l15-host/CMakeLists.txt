@@ -22,6 +22,7 @@ option(MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO
 option(MULTI_MCU_PHASE9_CONTROL "Build the opt-in MCUmanager host control group" OFF)
 option(MULTI_MCU_PHASE10_UPDATE "Build PC-streamed STM32 updates and supervision" OFF)
 option(MULTI_MCU_PHASE11_ROM "Build factory ROM bootloader repair" OFF)
+option(MULTI_MCU_PHASE12_METRICS "Build operator reliability metrics" OFF)
 
 # Sysbuild stores image-scoped command-line values as properties; plain option()
 # does not import them into the child application's CMake cache.
@@ -29,7 +30,7 @@ if(SYSBUILD)
     foreach(profile_option MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO
                            MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO
                            MULTI_MCU_PHASE9_CONTROL MULTI_MCU_PHASE10_UPDATE
-                           MULTI_MCU_PHASE11_ROM)
+                           MULTI_MCU_PHASE11_ROM MULTI_MCU_PHASE12_METRICS)
         unset(profile_value)
         zephyr_get(profile_value VAR ${profile_option})
         if(DEFINED profile_value)
@@ -42,6 +43,9 @@ if(MULTI_MCU_PHASE10_UPDATE AND NOT MULTI_MCU_PHASE9_CONTROL)
 endif()
 if(MULTI_MCU_PHASE11_ROM AND NOT MULTI_MCU_PHASE10_UPDATE)
     message(FATAL_ERROR "Phase 11 requires Phase 10")
+endif()
+if(MULTI_MCU_PHASE12_METRICS AND NOT MULTI_MCU_PHASE11_ROM)
+    message(FATAL_ERROR "Phase 12 requires Phase 11 recovery")
 endif()
 if(MULTI_MCU_PHASE9_CONTROL AND MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO)
     message(FATAL_ERROR "Phase 9 control and Phase 7 demo are independent profiles")
@@ -89,6 +93,9 @@ if(MULTI_MCU_PHASE10_UPDATE)
 endif()
 if(MULTI_MCU_PHASE11_ROM)
     target_compile_definitions(app PRIVATE MULTI_MCU_PHASE11_ROM=1)
+endif()
+if(MULTI_MCU_PHASE12_METRICS)
+    target_compile_definitions(app PRIVATE MULTI_MCU_PHASE12_METRICS=1)
 endif()
 
 target_include_directories(app PRIVATE

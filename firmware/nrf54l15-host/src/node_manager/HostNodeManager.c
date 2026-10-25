@@ -18,6 +18,19 @@
 
 LOG_MODULE_REGISTER(host_node_manager, LOG_LEVEL_INF);
 
+static HostNodeManager_Metrics HostNodeManager_Lifetime;
+static bool HostNodeManager_Initialized;
+static bool HostNodeManager_Timing;
+static int64_t HostNodeManager_FirstSend;
+
+static void HostNodeManager_Count(uint32_t *counter) {
+    if (*counter != UINT32_MAX) {
+        ++*counter;
+    }
+}
+
+HostNodeManager_Metrics HostNodeManager_GetMetrics(void) { return HostNodeManager_Lifetime; }
+
 #define HOST_RESPONSE_TIMEOUT_MS 500
 #define HOST_HEARTBEAT_PERIOD_MS 2000
 #define HOST_MAX_RETRIES 3U
@@ -219,6 +232,7 @@ static void HostNodeManager_RecordNodeReboot(uint32_t new_session) {
     }
     HostNodeManager.reboot_count = kept;
     HostNodeManager.status.node_reboots++;
+    HostNodeManager_Count(&HostNodeManager_Lifetime.node_reboots);
     LOG_WRN("node reboot detected: session %u -> %u (%u/%u within 30 s)",
             HostNodeManager.last_session, new_session, (unsigned int)kept, HOST_REBOOT_LATCH_COUNT);
     if (kept >= HOST_REBOOT_LATCH_COUNT) {
@@ -230,6 +244,7 @@ static void HostNodeManager_RecordNodeReboot(uint32_t new_session) {
 
 static void HostNodeManager_SessionChanged(uint32_t new_session) {
     HostNodeManager.status.session_changes++;
+    HostNodeManager_Count(&HostNodeManager_Lifetime.session_changes);
     HostNodeManager_ClearPending();
     HostNodeManager_RecordNodeReboot(new_session);
     HostNodeManager.last_session = new_session;
@@ -286,7 +301,12 @@ static int HostNodeManager_TransmitPending(bool retry) {
 
     HostNodeManager.deadline = k_uptime_get() + HOST_RESPONSE_TIMEOUT_MS;
     if (!retry) {
+        HostNodeManager_FirstSend = k_uptime_get();
+        HostNodeManager_Timing = true;
+        HostNodeManager_Count(&HostNodeManager_Lifetime.requests);
         HostNodeManager.retry_count = 0U;
+    } else {
+        HostNodeManager_Count(&HostNodeManager_Lifetime.retries);
     }
     return 0;
 }
@@ -318,6 +338,24 @@ static int HostNodeManager_SendRequest(uint16_t message_id, const uint8_t *data,
 }
 
 static void HostNodeManager_CompleteRequest(void) {
+    if (HostNodeManager_Timing) {
+        int64_t elapsed = k_uptime_get() - HostNodeManager_FirstSend;
+        uint32_t ms = elapsed < 0                      ? 0U
+                      : (uint64_t)elapsed > UINT32_MAX ? UINT32_MAX
+                                                       : (uint32_t)elapsed;
+        HostNodeManager_Count(&HostNodeManager_Lifetime.responses);
+        HostNodeManager_Count(&HostNodeManager_Lifetime.latency_count);
+        HostNodeManager_Lifetime.latency_last_ms = ms;
+        if (ms > HostNodeManager_Lifetime.latency_max_ms) {
+            HostNodeManager_Lifetime.latency_max_ms = ms;
+        }
+        if (UINT64_MAX - HostNodeManager_Lifetime.latency_sum_ms < ms) {
+            HostNodeManager_Lifetime.latency_sum_ms = UINT64_MAX;
+        } else {
+            HostNodeManager_Lifetime.latency_sum_ms += ms;
+        }
+        HostNodeManager_Timing = false;
+    }
     HostNodeManager.pending_message = 0U;
     HostNodeManager.pending_payload_length = 0U;
     HostNodeManager.pending_operation = 0U;
@@ -340,6 +378,7 @@ static void HostNodeManager_Advance(uint16_t message_id, const Protocol_Frame *f
         if (HostNodeManager.last_session != 0U && session != HostNodeManager.last_session) {
             if (HostNodeManager.reboot_pending) {
                 HostNodeManager.status.session_changes++;
+                HostNodeManager_Count(&HostNodeManager_Lifetime.session_changes);
                 HostNodeManager_RecordNodeReboot(session);
                 HostNodeManager.last_session = session;
                 HostNodeManager.reboot_pending = false;
@@ -425,6 +464,7 @@ static void HostNodeManager_Advance(uint16_t message_id, const Protocol_Frame *f
             }
         }
         HostNodeManager.status.state = HOST_LINK_ONLINE;
+        HostNodeManager_Count(&HostNodeManager_Lifetime.online_count);
         HostNodeManager_CompleteRequest();
         LOG_INF("node online: %s, session %u, capabilities 0x%08x", HostNodeManager.status.identity,
                 HostNodeManager.status.session_generation, HostNodeManager.status.capabilities);
@@ -582,6 +622,7 @@ static void HostNodeManager_EventReceived(const Protocol_Frame *frame) {
 
     HostNodeManager_Emit(HOST_NODE_RECORD_EVENT, operation_id, service_id, event_id, 0U, event_data,
                          event_data_length);
+    HostNodeManager_Count(&HostNodeManager_Lifetime.events);
 
     if (service_id == NODE_API_SERVICE_DIAGNOSTICS &&
         event_id == NODE_API_DIAGNOSTICS_EVENT_RECORD) {
@@ -660,10 +701,16 @@ static void HostNodeManager_FrameReceived(const Protocol_Frame *frame, void *con
 
 static void HostNodeManager_FrameError(Protocol_Status status, void *context) {
     ARG_UNUSED(context);
+    HostNodeManager_Count(&HostNodeManager_Lifetime.protocol_errors);
     HostNodeManager_RejectFrame((uint32_t)status);
 }
 
 void HostNodeManager_Initialize(void) {
+    if (HostNodeManager_Initialized) {
+        HostNodeManager_Count(&HostNodeManager_Lifetime.manager_restarts);
+    }
+    HostNodeManager_Initialized = true;
+    HostNodeManager_Timing = false;
     memset(&HostNodeManager, 0, sizeof(HostNodeManager));
     Diagnostics_Initialize(&HostNodeManager.diagnostics);
     Protocol_DecoderInitialize(&HostNodeManager.decoder);
@@ -705,6 +752,7 @@ void HostNodeManager_Process(void) {
                 HostNodeManager.expected_ready_transition_until = 0;
             } else {
                 HostNodeManager.status.ready_losses++;
+                HostNodeManager_Count(&HostNodeManager_Lifetime.ready_losses);
                 HostNodeManager.reboot_pending = true;
                 LOG_WRN(
                     "unexpected node READY loss; pending work discarded, remote reset disabled");
@@ -733,6 +781,7 @@ void HostNodeManager_Process(void) {
     if (HostNodeManager.retry_count < HOST_MAX_RETRIES && HostNodeManager.pending_message != 0U) {
         HostNodeManager.retry_count++;
         HostNodeManager.status.timeouts++;
+        HostNodeManager_Count(&HostNodeManager_Lifetime.timeouts);
         HostNodeManager_RecordDiagnostic(DIAGNOSTICS_SEVERITY_WARNING, DIAGNOSTICS_DOMAIN_TRANSPORT,
                                          HOST_DIAGNOSTIC_CODE_REQUEST_TIMEOUT,
                                          HostNodeManager.pending_operation,
@@ -743,6 +792,7 @@ void HostNodeManager_Process(void) {
 
     HostNodeManager.status.state = HOST_LINK_DEGRADED;
     HostNodeManager.status.timeouts++;
+    HostNodeManager_Count(&HostNodeManager_Lifetime.timeouts);
     HostNodeManager_RecordDiagnostic(DIAGNOSTICS_SEVERITY_ERROR, DIAGNOSTICS_DOMAIN_TRANSPORT,
                                      HOST_DIAGNOSTIC_CODE_REQUEST_TIMEOUT,
                                      HostNodeManager.pending_operation,

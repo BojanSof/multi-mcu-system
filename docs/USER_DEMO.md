@@ -1,5 +1,10 @@
 # Integrated two-board demonstration
 
+For the final USB-controlled system, use [Phase12 testing](PHASE_12_TESTING.md)
+and root `scripts/demo.sh`. The historical bring-up walkthrough below remains for
+earlier profiles. Default demo never updates firmware; controls require explicit
+`--exercise-controls --yes`. A short smoke is not full hardware acceptance.
+
 This is the shortest end-to-end demonstration of the reusable host/node platform. It uses only the
 nRF54L15-DK, NUCLEO-U083RC, their USB connections and the frozen jumper wiring. Virtual sensor and
 actuator values are software simulations; they do not represent physical measurements or outputs.

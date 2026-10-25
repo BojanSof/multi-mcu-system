@@ -14,6 +14,7 @@ unless explicitly stated. API version is 1. Normal profile remains selectable;
 | 4 supervision | read/write | Phase 10 contract below | job status/admission |
 | 5 STM update | read/write | Phase 10 contract below | job status/admission |
 | 6 ROM recovery | read/write | Phase 11 contract below | recovery status/admission |
+| 7 metrics | read | empty map; Phase 12 only | lifetime counters and stack snapshot below |
 
 An event record contains `id`, `time_ms`, `session`, `operation`, `service`,
 `code`, `kind` (text: response/event/error), `status`, `data` (bytes).
@@ -151,3 +152,48 @@ If absent, chain signed Slot0 command5 recovery. On definite -18/protocol6 prote
 Slot0 refusal only, same-boot/job checks and ownership release permit a new signed
 Slot1 job; its journal guards remain authoritative. Never fallback on uncertainty
 or erase metadata. Nordic firmware is not updated as a side effect of STM repair.
+
+## Phase 12 metrics (API v1)
+
+`phase12` and `phase12-verbose` extend Phase11 with status0 `metrics:true` and
+read-only command7. Snapshots are sampled on main and copied under the control
+mutex; SMP never reads manager state directly. Counters live for one Nordic boot,
+including across manager reinitialization. Always compare host_boot_id before deltas.
+
+Fields:
+
+- host_boot_id (u32), uptime_ms (u64)
+- requests, retries, responses, timeouts, protocol_errors, uart_errors
+- rx_bytes, tx_bytes, rx_overflows, tx_overflows
+- events, dropped, manager_restarts, online_count, session_changes, ready_losses,
+  node_reboots
+- latency_count, latency_sum_ms (u64), latency_max_ms, latency_last_ms
+- main_stack_free, work_stack_free, stack_supported (bool)
+
+Other integers are u32. Manager counters saturate; UART atomic counters can wrap.
+Conservative acceptance rejects decreasing deltas rather than guessing a reset/wrap.
+Requests count successful original runtime UART enqueues; retries count successful
+retransmits. Responses count accepted correlated replies, including discovery and
+heartbeats. Latency is first enqueue to matched reply, including retries/main-loop
+scheduling, not asynchronous operation completion or PC round-trip time.
+
+`manager_restarts` counts component reinitialization, including supervised update
+transitions; `node_reboots`/session_changes describe observed unexpected session
+changes, not every physical reset pulse. `dropped` counts overwritten retained
+history records, not necessarily unread loss; detect unread loss with event cursors.
+UART errors count positive uart_err_check results (one observed error-bit batch),
+not unsupported driver return values. No globally simultaneous ISR/main snapshot
+is claimed.
+
+Stack free is initialized-stack scan evidence sampled on main; UINT32_MAX with
+stack_supported=false means unavailable. It is not a guaranteed call-chain bound.
+The response reserves32 CBOR map entries to support all26 fields.
+
+Phase12 command5/6 status adds elapsed_ms (u64) and bytes_per_second (u32), frozen
+at terminal state. Whole-job ACKed artifact bytes/time includes entry, erase,
+hash verification and reboots; it is not raw UART bandwidth. Reads do not extend
+transfer inactivity. A reset-only job has zero transfer throughput.
+
+Normal phase12 compiles warning/error logs only; phase12-verbose retains info logs
+for a measured resource baseline. Typed SMP events/metrics are identical; older
+profiles keep their logging behavior.

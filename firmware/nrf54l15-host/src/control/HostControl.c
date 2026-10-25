@@ -19,6 +19,9 @@
 #endif
 
 #include "HostNodeManager.h"
+#if defined(MULTI_MCU_PHASE12_METRICS)
+#include "HostTransport.h"
+#endif
 #if defined(MULTI_MCU_PHASE10_UPDATE)
 #include "HostUpdateAdapter.h"
 #endif
@@ -68,6 +71,43 @@ static uint32_t HostControl_NextOperation;
 static bool HostControl_Queued;
 static bool HostControl_Busy;
 static uint32_t HostControl_BootId;
+#if defined(MULTI_MCU_PHASE12_METRICS)
+static HostNodeManager_Metrics HostControl_Metrics;
+static HostTransport_Stats HostControl_TransportMetrics;
+static uint64_t HostControl_Uptime;
+static uint32_t HostControl_MainFree = UINT32_MAX;
+static uint32_t HostControl_WorkFree = UINT32_MAX;
+static bool HostControl_StackSupported;
+
+static void HostControl_SampleMetrics(void) {
+    HostNodeManager_Metrics metrics = HostNodeManager_GetMetrics();
+    HostTransport_Stats transport = HostTransport_GetStats();
+    uint32_t main_free = UINT32_MAX, work_free = UINT32_MAX;
+    bool supported = false;
+#if !defined(HOST_CONTROL_NATIVE_TEST) && defined(CONFIG_INIT_STACKS) &&                           \
+    defined(CONFIG_THREAD_STACK_INFO)
+    size_t main_unused, work_unused;
+    if (k_thread_stack_space_get(k_current_get(), &main_unused) == 0 &&
+        k_thread_stack_space_get(&k_sys_work_q.thread, &work_unused) == 0) {
+        main_free = (uint32_t)main_unused;
+        work_free = (uint32_t)work_unused;
+        supported = true;
+    }
+#endif
+    k_mutex_lock(&HostControl_Lock, K_FOREVER);
+    HostControl_Metrics = metrics;
+    HostControl_TransportMetrics = transport;
+    HostControl_Uptime = (uint64_t)k_uptime_get();
+    HostControl_MainFree = main_free;
+    HostControl_WorkFree = work_free;
+    HostControl_StackSupported = supported;
+    k_mutex_unlock(&HostControl_Lock);
+}
+
+static bool HostControl_Uint64(zcbor_state_t *state, const char *key, uint64_t value) {
+    return zcbor_tstr_put_term(state, key, 32U) && zcbor_uint64_put(state, value);
+}
+#endif
 
 static bool HostControl_Uint(zcbor_state_t *state, const char *key, uint32_t value) {
     return zcbor_tstr_put_term(state, key, 32U) && zcbor_uint32_put(state, value);
@@ -215,6 +255,9 @@ void HostControl_Process(void) {
 #endif
 #endif
     k_mutex_unlock(&HostControl_Lock);
+#if defined(MULTI_MCU_PHASE12_METRICS)
+    HostControl_SampleMetrics();
+#endif
 }
 
 static int HostControl_StatusRead(struct smp_streamer *stream) {
@@ -246,6 +289,9 @@ static int HostControl_StatusRead(struct smp_streamer *stream) {
               HostControl_Uint(state, "dropped", HostControl_Dropped) &&
               zcbor_tstr_put_lit(state, "busy") && zcbor_bool_put(state, busy) &&
               HostControl_Text(state, "firmware", firmware);
+#if defined(MULTI_MCU_PHASE12_METRICS)
+    ok = ok && zcbor_tstr_put_lit(state, "metrics") && zcbor_bool_put(state, true);
+#endif
 #if defined(MULTI_MCU_PHASE10_UPDATE)
     ok = ok && zcbor_tstr_put_lit(state, "supervision") &&
          zcbor_bool_put(state, HostUpdateAdapter_IsAvailable()) &&
@@ -412,9 +458,48 @@ static int HostControl_EventsRead(struct smp_streamer *stream) {
     return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
 }
 
-#if !defined(MULTI_MCU_PHASE11_ROM)
+#if !defined(MULTI_MCU_PHASE12_METRICS) || !defined(MULTI_MCU_PHASE11_ROM) ||                      \
+    !defined(MULTI_MCU_PHASE10_UPDATE)
 static int HostControl_Unsupported(struct smp_streamer *stream) {
     return HostControl_Error(stream->writer->zs, "unsupported");
+}
+#endif
+
+#if defined(MULTI_MCU_PHASE12_METRICS)
+static int HostControl_MetricsRead(struct smp_streamer *stream) {
+    zcbor_state_t *state = stream->writer->zs;
+    k_mutex_lock(&HostControl_Lock, K_FOREVER);
+    const HostNodeManager_Metrics *m = &HostControl_Metrics;
+    const HostTransport_Stats *t = &HostControl_TransportMetrics;
+    bool ok = HostControl_Uint(state, "host_boot_id", HostControl_BootId) &&
+              HostControl_Uint64(state, "uptime_ms", HostControl_Uptime) &&
+              HostControl_Uint(state, "requests", m->requests) &&
+              HostControl_Uint(state, "retries", m->retries) &&
+              HostControl_Uint(state, "responses", m->responses) &&
+              HostControl_Uint(state, "timeouts", m->timeouts) &&
+              HostControl_Uint(state, "protocol_errors", m->protocol_errors) &&
+              HostControl_Uint(state, "uart_errors", t->uart_errors) &&
+              HostControl_Uint(state, "rx_bytes", t->received_bytes) &&
+              HostControl_Uint(state, "tx_bytes", t->transmitted_bytes) &&
+              HostControl_Uint(state, "rx_overflows", t->receive_overflows) &&
+              HostControl_Uint(state, "tx_overflows", t->transmit_overflows) &&
+              HostControl_Uint(state, "events", m->events) &&
+              HostControl_Uint(state, "dropped", HostControl_Dropped) &&
+              HostControl_Uint(state, "manager_restarts", m->manager_restarts) &&
+              HostControl_Uint(state, "online_count", m->online_count) &&
+              HostControl_Uint(state, "session_changes", m->session_changes) &&
+              HostControl_Uint(state, "ready_losses", m->ready_losses) &&
+              HostControl_Uint(state, "node_reboots", m->node_reboots) &&
+              HostControl_Uint(state, "latency_count", m->latency_count) &&
+              HostControl_Uint64(state, "latency_sum_ms", m->latency_sum_ms) &&
+              HostControl_Uint(state, "latency_max_ms", m->latency_max_ms) &&
+              HostControl_Uint(state, "latency_last_ms", m->latency_last_ms) &&
+              HostControl_Uint(state, "main_stack_free", HostControl_MainFree) &&
+              HostControl_Uint(state, "work_stack_free", HostControl_WorkFree) &&
+              zcbor_tstr_put_lit(state, "stack_supported") &&
+              zcbor_bool_put(state, HostControl_StackSupported);
+    k_mutex_unlock(&HostControl_Lock);
+    return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
 }
 #endif
 
@@ -433,6 +518,11 @@ static const struct mgmt_handler HostControl_Handlers[] = {
     [6] = {.mh_read = HostUpdateAdapter_RomStatusRead, .mh_write = HostUpdateAdapter_RomWrite},
 #else
     [6] = {.mh_write = HostControl_Unsupported},
+#endif
+#if defined(MULTI_MCU_PHASE12_METRICS)
+    [7] = {.mh_read = HostControl_MetricsRead},
+#else
+    [7] = {.mh_read = HostControl_Unsupported},
 #endif
 };
 

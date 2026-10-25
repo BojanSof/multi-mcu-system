@@ -38,6 +38,9 @@ jobs:
       - name: Check repository whitespace
         run: git diff --check
 
+      - name: Check HIL matrix safe no-op
+        run: .venv/bin/python tests/hil/acceptance_matrix.py
+
   embedded:
     if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, multi-mcu-lab]
@@ -79,3 +82,19 @@ jobs:
         run: |
           source ./.env.local
           scripts/build/build_nordic.sh --profile phase11
+
+      - name: Build final metrics baseline and optimized profiles
+        run: |
+          source ./.env.local
+          scripts/build/build_nordic.sh --profile phase12-verbose
+          scripts/build/build_nordic.sh --profile phase12
+          .venv/bin/python tools/firmware/resource_report.py \
+            --elf verbose=build/nrf54l15-host-phase12-verbose/nrf54l15-host/zephyr/zephyr.elf \
+            --elf optimized=build/nrf54l15-host-phase12/nrf54l15-host/zephyr/zephyr.elf \
+            --size-tool arm-none-eabi-size --output build/final-resources.json
+
+      - name: Save static resource evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-firmware-resources
+          path: build/final-resources.json

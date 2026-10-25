@@ -113,6 +113,18 @@ static void Test_RomBegin(uint64_t id, uint32_t total, uint8_t hash_byte) {
 }
 
 int main(void) {
+#if defined(MULTI_MCU_PHASE12_METRICS)
+    HostUpdate_Timing timing;
+    HostUpdate_StartTiming(&timing);
+    timing.start -= 1000;
+    assert(HostUpdate_Elapsed(&timing) == 1000);
+    HostUpdate_StopTiming(&timing, true);
+    assert(timing.live);
+    HostUpdate_StopTiming(&timing, false);
+    assert(!timing.live && timing.elapsed == 1000);
+    timing.start -= 1000;
+    assert(HostUpdate_Elapsed(&timing) == 1000); /* terminal snapshot stays fixed */
+#endif
     (void)Phase10_TestMain();
     HostUpdate_Status.active = false;
     HostUpdate_RuntimeBusy = false;

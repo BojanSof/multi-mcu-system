@@ -19,6 +19,7 @@ static atomic_t HostTransport_ReceivedBytes;
 static atomic_t HostTransport_TransmittedBytes;
 static atomic_t HostTransport_ReceiveOverflows;
 static atomic_t HostTransport_TransmitOverflows;
+static atomic_t HostTransport_UartErrors;
 
 #if DT_HAS_CHOSEN(multi_mcu_node_uart)
 #define HOST_TRANSPORT_UART_NODE DT_CHOSEN(multi_mcu_node_uart)
@@ -28,6 +29,9 @@ static void HostTransport_Interrupt(const struct device *device, void *context) 
     uint8_t buffer[32];
 
     ARG_UNUSED(context);
+    if (uart_err_check(device) > 0) {
+        atomic_inc(&HostTransport_UartErrors);
+    }
 
     while (uart_irq_update(device) != 0 && uart_irq_is_pending(device) != 0) {
         if (uart_irq_rx_ready(device) != 0) {
@@ -73,6 +77,10 @@ int HostTransport_Initialize(void) {
         return result;
     }
     uart_irq_rx_enable(HostTransport_Uart);
+#if defined(MULTI_MCU_PHASE12_METRICS)
+    /* Count hardware-error-only interrupts promptly, not only on later RX/TX. */
+    uart_irq_err_enable(HostTransport_Uart);
+#endif
     return 0;
 #else
     return -ENODEV;
@@ -125,6 +133,7 @@ HostTransport_Stats HostTransport_GetStats(void) {
         .transmitted_bytes = (uint32_t)atomic_get(&HostTransport_TransmittedBytes),
         .receive_overflows = (uint32_t)atomic_get(&HostTransport_ReceiveOverflows),
         .transmit_overflows = (uint32_t)atomic_get(&HostTransport_TransmitOverflows),
+        .uart_errors = (uint32_t)atomic_get(&HostTransport_UartErrors),
     };
     return stats;
 }

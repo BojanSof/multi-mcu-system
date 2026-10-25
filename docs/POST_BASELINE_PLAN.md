@@ -49,7 +49,7 @@ state before restarting. HIL: both slots, bad image/wrong slot, interruption and
 Status (2026-10-23): software implemented and native/firmware verification passed;
 user hardware normal-repair/runtime/sensor smoke passed; extended destructive
 acceptance pending. See `PHASE_REPORTS/PHASE_11.md` and the
-`PHASE_11_TESTING.md` manual gates. Phase 12 has not started.
+`PHASE_11_TESTING.md` manual gates.
 
 Add portable C11 `libraries/stm32-rom-boot`, CMake target
 `Stm32RomBoot::Stm32RomBoot`, native tests and Zephyr integration. AN3155 state
@@ -71,6 +71,11 @@ interrupted writes and readback mismatch before hardware erase. HIL restores a c
 bootloader while preserving confirmed apps, then recovers empty apps by signed install.
 
 ## Phase 12 — Reliability, optimization and release
+
+Status (2026-10-25): software implemented and verified (16 root CTests,
+2 bootloader CTests,242 Python tests and firmware builds). Physical100/600
+acceptance and destructive matrix remain separately pending. See
+`PHASE_REPORTS/PHASE_12.md`, `PHASE_12_TESTING.md` and `FINAL_RELEASE.md`.
 
 Provide a root-invoked non-destructive demo: discovery, service calls, events,
 lifecycle, faults and reset recovery. Add latency/retry/UART-error/event-drop/reset

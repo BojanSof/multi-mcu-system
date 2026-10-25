@@ -78,6 +78,38 @@ static bool HostUpdate_BootOwned;
 static bool HostUpdate_ResetJob;
 static bool HostUpdate_RuntimeBusy;
 static bool HostUpdate_Processing;
+#if defined(MULTI_MCU_PHASE12_METRICS)
+typedef struct {
+    int64_t start;
+    uint64_t elapsed;
+    bool live;
+} HostUpdate_Timing;
+static HostUpdate_Timing HostUpdate_JobTiming;
+static HostUpdate_Timing HostRom_JobTiming;
+
+static void HostUpdate_StartTiming(HostUpdate_Timing *timing) {
+    timing->start = k_uptime_get();
+    timing->elapsed = 0;
+    timing->live = true;
+}
+static uint64_t HostUpdate_Elapsed(const HostUpdate_Timing *timing) {
+    int64_t elapsed = k_uptime_get() - timing->start;
+    return timing->live ? (elapsed > 0 ? (uint64_t)elapsed : 0U) : timing->elapsed;
+}
+static void HostUpdate_StopTiming(HostUpdate_Timing *timing, bool active) {
+    if (timing->live && !active) {
+        timing->elapsed = HostUpdate_Elapsed(timing);
+        timing->live = false;
+    }
+}
+static bool HostUpdate_EncodeTiming(zcbor_state_t *state, const HostUpdate_Timing *timing,
+                                    uint32_t offset) {
+    uint64_t elapsed = HostUpdate_Elapsed(timing);
+    uint64_t rate = elapsed == 0 ? 0U : (uint64_t)offset * 1000U / elapsed;
+    return zcbor_tstr_put_lit(state, "elapsed_ms") && zcbor_uint64_put(state, elapsed) &&
+           zcbor_tstr_put_lit(state, "bytes_per_second") && zcbor_uint64_put(state, rate);
+}
+#endif
 
 #if defined(MULTI_MCU_PHASE11_ROM)
 static Stm32RomBoot_Context HostRom_Core;
@@ -313,6 +345,9 @@ static void HostRom_ProcessRequest(const HostUpdate_Request *request, bool queue
     }
     k_mutex_lock(&HostUpdate_Lock, K_FOREVER);
     HostRom_Status = status;
+#if defined(MULTI_MCU_PHASE12_METRICS)
+    HostUpdate_StopTiming(&HostRom_JobTiming, status.active);
+#endif
     HostRom_DeviceId = HostRom_Core.device_id;
     HostRom_Version = HostRom_Core.version;
     HostUpdate_BootOwned = status.active;
@@ -422,6 +457,9 @@ void HostUpdateAdapter_Process(void) {
         }
     }
     HostUpdate_BootOwned = HostStmUpdate_UsesBootTransport(&HostUpdate_Core);
+#if defined(MULTI_MCU_PHASE12_METRICS)
+    HostUpdate_StopTiming(&HostUpdate_JobTiming, HostUpdate_Status.active);
+#endif
     HostUpdate_Queued = false;
     HostUpdate_Processing = false;
     k_mutex_unlock(&HostUpdate_Lock);
@@ -458,6 +496,9 @@ int HostUpdateAdapter_StatusRead(struct smp_streamer *stream) {
               zcbor_tstr_put_lit(state, "error") && zcbor_int32_put(state, status->error) &&
               zcbor_tstr_put_lit(state, "active") &&
               zcbor_bool_put(state, status->active || HostUpdate_Queued);
+#if defined(MULTI_MCU_PHASE12_METRICS)
+    ok = ok && HostUpdate_EncodeTiming(state, &HostUpdate_JobTiming, status->offset);
+#endif
     k_mutex_unlock(&HostUpdate_Lock);
     return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
 }
@@ -580,6 +621,9 @@ static int HostUpdate_Write(struct smp_streamer *stream, bool reset) {
         }
         request.job = request.request;
         HostUpdate_Job = request.job;
+#if defined(MULTI_MCU_PHASE12_METRICS)
+        HostUpdate_StartTiming(&HostUpdate_JobTiming);
+#endif
         HostUpdate_ResetJob = reset;
         HostUpdate_StartRequest = request;
         HostUpdate_Status = (HostStmUpdate_Status){.state = HOST_STM_UPDATE_QUERYING,
@@ -659,6 +703,9 @@ int HostUpdateAdapter_RomStatusRead(struct smp_streamer *stream) {
               HostUpdate_Uint(state, "rom_version", HostRom_Version) &&
               zcbor_tstr_put_lit(state, "error") && zcbor_int32_put(state, status->error) &&
               zcbor_tstr_put_lit(state, "active") && zcbor_bool_put(state, status->active);
+#if defined(MULTI_MCU_PHASE12_METRICS)
+    ok = ok && HostUpdate_EncodeTiming(state, &HostRom_JobTiming, status->offset);
+#endif
     k_mutex_unlock(&HostUpdate_Lock);
     return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
 #else
@@ -741,6 +788,9 @@ int HostUpdateAdapter_RomWrite(struct smp_streamer *stream) {
         }
         request.job = request.request;
         HostRom_Job = request.job;
+#if defined(MULTI_MCU_PHASE12_METRICS)
+        HostUpdate_StartTiming(&HostRom_JobTiming);
+#endif
         HostUpdate_StartRequest = request;
         HostRom_Status = (HostStmUpdate_Status){.state = HOST_STM_UPDATE_QUERYING,
                                                 .total = request.total,

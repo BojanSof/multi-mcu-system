@@ -10,6 +10,7 @@ typedef struct {
     uint32_t transmitted_bytes;
     uint32_t receive_overflows;
     uint32_t transmit_overflows;
+    uint32_t uart_errors;
 } HostTransport_Stats;
 
 int HostTransport_Initialize(void);

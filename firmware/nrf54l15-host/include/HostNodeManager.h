@@ -53,6 +53,27 @@ typedef struct {
     uint32_t node_versions_session;
 } HostNodeManager_Status;
 
+/* Lifetime counters: survive manager reinitialization, reset with host reboot. */
+typedef struct {
+    uint32_t requests;
+    uint32_t retries;
+    uint32_t responses;
+    uint32_t timeouts;
+    uint32_t protocol_errors;
+    uint32_t events;
+    uint32_t manager_restarts;
+    uint32_t online_count;
+    uint32_t session_changes;
+    uint32_t ready_losses;
+    uint32_t node_reboots;
+    uint32_t latency_count;
+    uint64_t latency_sum_ms;
+    uint32_t latency_max_ms;
+    uint32_t latency_last_ms;
+} HostNodeManager_Metrics;
+
+HostNodeManager_Metrics HostNodeManager_GetMetrics(void);
+
 typedef enum {
     HOST_NODE_RECORD_RESPONSE,
     HOST_NODE_RECORD_EVENT,

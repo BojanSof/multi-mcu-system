@@ -17,11 +17,12 @@ from serial.tools import list_ports
 
 try:
     from .smp import SmpClient, SmpError, SmpTimeout
-    from . import stm, rom
+    from . import stm, rom, demo
 except ImportError:
     from smp import SmpClient, SmpError, SmpTimeout
     import stm
     import rom
+    import demo
 
 
 def number(value: str) -> int:
@@ -65,6 +66,26 @@ def select_port(explicit: str | None, available: list[dict]) -> str:
     if len(candidates) != 1:
         raise SmpError("specify --port (prefer /dev/serial/by-id/...); use 'device list'")
     return candidates[0]
+
+
+def port_identity(port, available):
+    """Pin USB identity before reset; never substitute an unrelated singleton."""
+    resolved = str(pathlib.Path(port).resolve())
+    matches = [item for item in available
+               if str(pathlib.Path(item["port"]).resolve()) == resolved]
+    if len(matches) == 1 and matches[0].get("serial"):
+        return {key: matches[0].get(key) for key in ("serial", "vid", "pid", "interface")}
+    return {"fixed_port": port}
+
+
+def reconnect_port(identity, available):
+    if "fixed_port" in identity:
+        return identity["fixed_port"]
+    matches = [item["port"] for item in available
+               if all(item.get(key) == value for key, value in identity.items())]
+    if len(matches) != 1:
+        raise SmpError("original USB identity absent or ambiguous; refusing another device")
+    return matches[0]
 
 
 def open_serial(port: str, baud: int, timeout: float):
@@ -237,12 +258,14 @@ def upload(client, path: pathlib.Path, as_json=False):
 def reconnect_images(client, args, expected_hash=None):
     """Read-only reconnect after reset; no mutating command can be replayed."""
     port = client.serial.port
+    identity = getattr(client, "port_identity", {"fixed_port": port})
     client.serial.close()
     deadline = time.monotonic() + 30
     last_error = None
     while time.monotonic() < deadline:
         time.sleep(1)
         try:
+            port = reconnect_port(identity, devices())
             with open_serial(port, args.baud, args.timeout) as connection:
                 probe = SmpClient(connection, timeout=min(args.timeout, 2), retries=0)
                 listing = probe.request(1, 0)
@@ -327,6 +350,14 @@ def parser():
     device.add_parser("list")
     status = commands.add_parser("status")
     status.add_argument("--watch", action="store_true")
+    commands.add_parser("metrics")
+    demonstration = commands.add_parser("demo")
+    demonstration.add_argument("--samples", type=int, default=100)
+    demonstration.add_argument("--watch-seconds", type=float, default=600)
+    demonstration.add_argument("--report", type=pathlib.Path)
+    demonstration.add_argument("--exercise-controls", action="store_true")
+    demonstration.add_argument("--require-acceptance", action="store_true",
+                               help="fail unless full100sample/600second/event acceptance passes")
     services = commands.add_parser("services").add_subparsers(dest="services_action", required=True)
     services.add_parser("list")
     sensor = commands.add_parser("sensor").add_subparsers(dest="sensor_action", required=True)
@@ -406,6 +437,7 @@ def parse_args(argv=None):
 
 def requires_yes(args):
     return (args.command == "service" or
+            (args.command == "demo" and args.exercise_controls) or
             (args.command == "stm" and args.stm_action in ("update", "abort", "recover", "recover-abort")) or
             (args.command == "node" and args.node_action not in ("status", "versions")) or
             (args.command == "diagnostics" and args.diagnostic_action in ("inject", "clear")) or
@@ -413,7 +445,14 @@ def requires_yes(args):
 
 
 def execute(client, args):
-    if args.command == "status":
+    if args.command == "metrics":
+        metrics = client.request(64, 7, retry=False)
+        if metrics.get("host_boot_id") != client.host_boot_id:
+            raise SmpError("metrics host boot changed")
+        emit(metrics, args.json)
+    elif args.command == "demo":
+        demo.run(client, args, sys.modules[__name__])
+    elif args.command == "status":
         while True:
             emit(client.request(64, 0), args.json)
             if not args.watch:
@@ -520,15 +559,19 @@ def main(argv=None):
                 if args.stm_action == "image":
                     emit(args.stm_preflight[1], args.json)
                     return 0
-        port = select_port(args.port, devices())
+        available = devices()
+        port = select_port(args.port, available)
         with open_serial(port, args.baud, args.timeout) as connection:
             log = (lambda line: print(line.decode("utf-8", errors="replace"), file=sys.stderr)) if args.logs else None
             client = SmpClient(connection, args.timeout, args.retries, log)
+            client.port_identity = port_identity(port, available)
             if args.command != "host":
                 status = client.request(64, 0)
                 if status.get("api") != 1:
                     raise SmpError(f"unsupported control API: {status.get('api')}")
                 client.host_boot_id = status.get("host_boot_id")
+                if args.command in ("metrics", "demo") and not status.get("metrics"):
+                    raise SmpError("command requires Phase 12 metrics firmware")
                 if (args.command == "stm" or
                         (args.command == "node" and args.node_action == "reset")):
                     if not status.get("stm_update") or not status.get("supervision"):

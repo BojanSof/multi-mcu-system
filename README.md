@@ -15,6 +15,25 @@ Phase 9 adds an opt-in USB operator CLI and typed host control interface. The
 approved continuation is in [docs/POST_BASELINE_PLAN.md](docs/POST_BASELINE_PLAN.md),
 with the frozen protocol in [docs/CONTROL_API.md](docs/CONTROL_API.md).
 
+## Final operator demo (Phase 12)
+
+Keep the working signed-A/B STM installation and verified Phase11 wiring. From root:
+
+```sh
+source ./.env.local
+scripts/build/build_nordic.sh --profile phase12
+.venv/bin/west flash -d build/nrf54l15-host-phase12
+scripts/mmctl metrics
+scripts/demo.sh --samples 5 --watch-seconds 10 --report build/smoke.json
+```
+
+Close other Nordic VCOM users; add `--port /dev/serial/by-id/...` when ambiguous.
+The default demo runs100 sensor requests and a ten-minute watch; press the STM
+button during watch. No firmware writes or resets occur unless explicitly requested.
+[Full acceptance commands](docs/PHASE_12_TESTING.md),
+[reproducible release guide](docs/FINAL_RELEASE.md) and phase reports distinguish
+implemented software from outstanding hardware acceptance.
+
 ## USB operator control (Phase 9)
 
 From the project root, build and initially flash the dedicated Nordic profile:
