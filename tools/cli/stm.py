@@ -8,8 +8,10 @@ import time
 
 try:
     from .smp import SmpError, SmpTimeout
+    from .polling import CompletionBackoff
 except ImportError:
     from smp import SmpError, SmpTimeout
+    from polling import CompletionBackoff
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from firmware.mmfw import parse_signed_image
@@ -79,6 +81,7 @@ def check_failure(current):
 
 
 def poll(client, job, deadline, total, minimum, maximum, predicate):
+    backoff = CompletionBackoff()
     while time.monotonic() < deadline:
         current = status(client, job)
         check_failure(current)
@@ -88,7 +91,7 @@ def poll(client, job, deadline, total, minimum, maximum, predicate):
             raise Indeterminate("invalid STM ACK offset/total; use 'stm status'; no replay")
         if predicate(current):
             return current
-        time.sleep(0.05)
+        backoff.wait(deadline)
     raise Indeterminate("STM job timed out; use 'stm status'; no replay")
 
 

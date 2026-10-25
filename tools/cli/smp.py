@@ -112,6 +112,23 @@ def make_packet(operation: int, group: int, command: int, sequence: int, data: d
     return HEADER.pack(operation | 0x08, 0, len(body), group, sequence, command) + body
 
 
+def _read_available(connection):
+    """Block for the first byte, then consume queued bytes without tail timeout.
+
+    The serial connection keeps its existing finite read timeout. Availability is
+    advisory: read may still return fewer bytes (or nothing), and the incremental
+    decoder handles that normally. Legacy transports without in_waiting use one
+    byte reads rather than requesting an unfilled 256-byte buffer.
+    """
+    try:
+        available = connection.in_waiting
+    except AttributeError:
+        available = 0
+    if type(available) is not int or available < 0:
+        raise SmpError("invalid serial availability")
+    return connection.read(min(max(available, 1), 256))
+
+
 class SmpClient:
     def __init__(self, serial, timeout: float = 3.0, retries: int = 2, log=None):
         if timeout <= 0 or not 0 <= retries <= 5:
@@ -134,7 +151,7 @@ class SmpClient:
                 raise SmpError("short serial write; operation outcome unknown")
             deadline = time.monotonic() + self.timeout
             while time.monotonic() < deadline:
-                incoming = self.serial.read(256)
+                incoming = _read_available(self.serial)
                 for packet in self.decoder.feed(incoming):
                     if len(packet) < HEADER.size:
                         continue

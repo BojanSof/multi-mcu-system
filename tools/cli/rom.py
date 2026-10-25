@@ -7,9 +7,11 @@ import time
 try:
     from . import stm
     from .smp import SmpError, SmpTimeout
+    from .polling import CompletionBackoff
 except ImportError:
     import stm
     from smp import SmpError, SmpTimeout
+    from polling import CompletionBackoff
 
 
 def status(client, job=None):
@@ -42,6 +44,7 @@ def mutate(client, action, job=None, **fields):
 
 def poll(client, job, total, minimum, maximum, predicate, seconds=45):
     deadline = time.monotonic() + seconds
+    backoff = CompletionBackoff()
     while time.monotonic() < deadline:
         current = status(client, job)
         if current.get("state") in ("failed", "aborted") or current.get("error", 0):
@@ -52,7 +55,7 @@ def poll(client, job, total, minimum, maximum, predicate, seconds=45):
             raise stm.Indeterminate("invalid ROM readback offset; use 'stm recover-status'; no replay")
         if predicate(current):
             return current
-        time.sleep(0.05)
+        backoff.wait(deadline)
     raise stm.Indeterminate("ROM job timeout; use 'stm recover-status'; no replay")
 
 

@@ -4,6 +4,11 @@ Run from the project root after building/flashing the `phase9` Nordic profile an
 installing `tools/requirements.lock` into `.venv`. Close the terminal log viewer
 before opening the CLI. Phase 9 sends logs over RTT and reserves J-Link VCOM for SMP.
 
+CLI reads queued serial bytes without waiting to fill a256-byte buffer. Pending
+operation/chunk waits back off5/10/20/50ms within the original deadline; passive
+watches and reconnect intervals are unchanged. No firmware rebuild/reflash is
+needed for these host-side improvements. See [performance evidence](../../docs/CLI_PERFORMANCE.md).
+
 ```sh
 ./scripts/mmctl device list
 ./scripts/mmctl --port /dev/serial/by-id/YOUR_JLINK status

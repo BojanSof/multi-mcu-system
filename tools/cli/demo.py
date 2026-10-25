@@ -9,9 +9,11 @@ import time
 
 try:
     from .smp import SmpError
+    from .polling import CompletionBackoff
     from . import stm
 except ImportError:
     from smp import SmpError
+    from polling import CompletionBackoff
     import stm
 
 
@@ -95,6 +97,7 @@ class Observer:
             raise SmpError("invalid or duplicate admitted operation ID")
         self.operations.add(operation)
         deadline = started + seconds
+        backoff = CompletionBackoff()
         response, completion, progress = None, None, []
         while time.monotonic() < deadline:
             link = self.status(lifecycle_transition=lifecycle_transition)
@@ -145,7 +148,7 @@ class Observer:
                         raise SmpError("actuator progress/completion did not match one execution")
                 return response
             if not page:
-                time.sleep(0.05)
+                backoff.wait(deadline)
         raise SmpError(f"operation {operation} incomplete; no command replayed")
 
 

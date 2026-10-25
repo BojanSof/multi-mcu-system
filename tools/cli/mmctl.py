@@ -17,9 +17,11 @@ from serial.tools import list_ports
 
 try:
     from .smp import SmpClient, SmpError, SmpTimeout
+    from .polling import CompletionBackoff
     from . import stm, rom, demo
 except ImportError:
     from smp import SmpClient, SmpError, SmpTimeout
+    from polling import CompletionBackoff
     import stm
     import rom
     import demo
@@ -160,6 +162,7 @@ def events(client, after: int = 0) -> dict:
 
 def wait_result(client, operation: int, cursor: int, seconds: float, as_json=False):
     deadline = time.monotonic() + seconds
+    backoff = CompletionBackoff()
     while time.monotonic() < deadline:
         batch = events(client, cursor)
         if batch.get("host_boot_id") != client.host_boot_id:
@@ -173,7 +176,7 @@ def wait_result(client, operation: int, cursor: int, seconds: float, as_json=Fal
                 if event.get("kind") == "response":
                     return event
         if not batch.get("events"):
-            time.sleep(0.05)
+            backoff.wait(deadline)
     raise SmpError(f"operation {operation} result timed out; use 'events watch'")
 
 
