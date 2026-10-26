@@ -6,6 +6,9 @@
 #include "AppDiagnostics.h"
 #include "AppServices.h"
 #include "node_api/NodeApi.h"
+#if defined(MULTI_MCU_RELIABILITY)
+#include "node_api/NodeReliableEvents.h"
+#endif
 #include "node_api/NodeCommands.h"
 #include "protocol/ProtocolFrame.h"
 #include "protocol/ProtocolTransport.h"
@@ -26,6 +29,12 @@ typedef struct {
     Protocol_Decoder decoder;
     uint8_t rx_chunk[NODE_TRANSPORT_RX_CHUNK_SIZE];
     uint8_t tx_encoded[PROTOCOL_MAX_ENCODED_FRAME];
+#if defined(MULTI_MCU_RELIABILITY)
+    NodeEvents_Queue events;
+    bool reliable_enabled;
+    bool event_negotiating;
+    uint32_t button_dropped;
+#endif
     bool clear_irq_pending;
     bool drop_current_response;
     bool apply_current_injection;
@@ -133,6 +142,13 @@ static bool NodeTransport_HandleListServices(NodeTransport_Context *context,
         NodeTransport_WriteU16(&response->payload[response->payload_length], descriptor->flags);
         response->payload_length += 2U;
     }
+#if defined(MULTI_MCU_RELIABILITY)
+    /* LIST without ENABLE is a legacy host: drain retained data in legacy format. */
+    context->event_negotiating = false;
+    if (!context->reliable_enabled) {
+        NodeEvents_Rearm(&context->events);
+    }
+#endif
     AppServices_MarkOnline();
     return true;
 }
@@ -206,6 +222,13 @@ static void NodeTransport_HandleRequest(const Protocol_Frame *request, void *opa
 
     message_id = NodeTransport_ReadU16(request->payload);
     requested_session = NodeTransport_ReadU32(&request->payload[2]);
+#if defined(MULTI_MCU_RELIABILITY)
+    if (message_id == NODE_API_MESSAGE_EVENT_ACK &&
+        requested_session != context->state->session_generation) {
+        ++context->state->rejected_requests;
+        return;
+    }
+#endif
     if ((message_id != NODE_API_MESSAGE_HELLO) &&
         (requested_session != context->state->session_generation)) {
         ++context->state->rejected_requests;
@@ -214,12 +237,44 @@ static void NodeTransport_HandleRequest(const Protocol_Frame *request, void *opa
         return;
     }
 
+#if defined(MULTI_MCU_RELIABILITY)
+    if (message_id == NODE_API_MESSAGE_EVENT_ACK) {
+        /* ACKs never consume request/response sequence space or emit a response. */
+        if (context->reliable_enabled && request->sequence == 0U &&
+            request->payload_length == NODE_API_REQUEST_PREFIX_SIZE + 4U) {
+            (void)NodeEvents_Acknowledge(
+                &context->events,
+                NodeTransport_ReadU32(&request->payload[NODE_API_REQUEST_PREFIX_SIZE]));
+            PlatformSideband_SetIrqPending(context->events.count != 0U);
+        }
+        return;
+    }
+#endif
     response.kind = PROTOCOL_FRAME_RESPONSE;
     response.sequence = request->sequence;
     context->apply_current_injection = false;
     NodeTransport_SetPrefix(&response, message_id, context->state->session_generation);
 
     switch (message_id) {
+#if defined(MULTI_MCU_RELIABILITY)
+    case NODE_API_MESSAGE_ENABLE_RELIABLE_EVENTS:
+        if (request->payload_length != NODE_API_REQUEST_PREFIX_SIZE) {
+            NodeTransport_SendError(context, request->sequence, message_id,
+                                    NODE_API_STATUS_MALFORMED_REQUEST);
+            return;
+        }
+        if (!context->reliable_enabled) {
+            NodeEvents_Rearm(&context->events);
+        }
+        context->reliable_enabled = true;
+        context->event_negotiating = false;
+        context->clear_irq_pending = false;
+        NodeTransport_WriteU32(&response.payload[response.payload_length],
+                               NodeEvents_FirstId(&context->events));
+        response.payload_length += 4U;
+        PlatformSideband_SetIrqPending(context->events.count != 0U);
+        break;
+#endif
     case NODE_API_MESSAGE_HELLO:
         if (request->payload_length != NODE_API_REQUEST_PREFIX_SIZE) {
             ++context->state->rejected_requests;
@@ -227,6 +282,12 @@ static void NodeTransport_HandleRequest(const Protocol_Frame *request, void *opa
                                     NODE_API_STATUS_MALFORMED_REQUEST);
             return;
         }
+#if defined(MULTI_MCU_RELIABILITY)
+        /* Every connection must opt in; do not send an old mode to a new host. */
+        context->reliable_enabled = false;
+        context->event_negotiating = true;
+        context->clear_irq_pending = false;
+#endif
         NodeTransport_WriteU16(&response.payload[response.payload_length],
                                NODE_API_MANAGEMENT_VERSION_MAJOR);
         response.payload_length += 2U;
@@ -260,6 +321,9 @@ static void NodeTransport_HandleRequest(const Protocol_Frame *request, void *opa
             &response.payload[response.payload_length],
             NODE_API_CAPABILITY_IDENTITY | NODE_API_CAPABILITY_HEARTBEAT |
                 NODE_API_CAPABILITY_LIFECYCLE | NODE_API_CAPABILITY_RESET_REASON |
+#if defined(MULTI_MCU_RELIABILITY)
+                NODE_API_CAPABILITY_RELIABLE_EVENTS |
+#endif
                 (PlatformSideband_IsEnabled() ? NODE_API_CAPABILITY_ASYNC_EVENT_IRQ : 0U));
         response.payload_length += 4U;
         break;
@@ -320,6 +384,9 @@ void NodeTransport_Initialize(NodeTransport_State *state, uint32_t session_gener
     state->rejected_requests = 0U;
     NodeTransport_Instance.state = state;
     NodeTransport_Instance.registry = registry;
+#if defined(MULTI_MCU_RELIABILITY)
+    NodeEvents_Initialize(&NodeTransport_Instance.events);
+#endif
     Protocol_DecoderInitialize(&NodeTransport_Instance.decoder);
     PlatformSideband_Initialize();
 #if defined(MULTI_MCU_EARLY_READY_BOOT_DEMO)
@@ -328,6 +395,59 @@ void NodeTransport_Initialize(NodeTransport_State *state, uint32_t session_gener
 #endif
     (void)PlatformTransport_Initialize();
     PlatformSideband_SetReady(PlatformTransport_IsEnabled() != 0);
+}
+
+#if defined(MULTI_MCU_RELIABILITY)
+static void NodeTransport_ProcessReliableEvents(void) {
+    NodeTransport_Context *context = &NodeTransport_Instance;
+    if (context->event_negotiating) {
+        PlatformSideband_SetIrqPending(context->events.count != 0U);
+        return;
+    }
+    const uint32_t now = HAL_GetTick();
+    /* Legacy fallback sends retained entries once using the legacy envelope. */
+    const NodeEvents_Event *entry = NodeEvents_Due(&context->events, now);
+    PlatformSideband_SetIrqPending(context->events.count != 0U);
+    if (entry != NULL) {
+        Protocol_Frame frame = {0};
+        frame.kind = PROTOCOL_FRAME_EVENT;
+        NodeTransport_SetPrefix(&frame,
+                                context->reliable_enabled ? NODE_API_MESSAGE_RELIABLE_EVENT
+                                                          : NODE_API_MESSAGE_SERVICE_EVENT,
+                                context->state->session_generation);
+        if (context->reliable_enabled) {
+            NodeTransport_WriteU32(&frame.payload[frame.payload_length], entry->id);
+            frame.payload_length += 4U;
+        }
+        NodeTransport_WriteServiceHeader(&frame, entry->service, entry->event, entry->operation);
+        memcpy(&frame.payload[frame.payload_length], entry->data, entry->length);
+        frame.payload_length += (uint16_t)entry->length;
+        /* Count attempted sends too: a faulty UART must not create unbounded retries. */
+        const bool sent = NodeTransport_Send(context, &frame, false);
+        NodeEvents_Sent(&context->events, now);
+        if (sent && !context->reliable_enabled) {
+            (void)NodeEvents_Acknowledge(&context->events, entry->id);
+            PlatformSideband_SetIrqPending(context->events.count != 0U);
+        }
+        if (AppDiagnostics_IsInjectionEnabled(DIAGNOSTICS_INJECTION_SHORT_IRQ)) {
+            PlatformSideband_SetIrqPending(false);
+        }
+    }
+}
+#endif
+
+void NodeTransport_GetEventStatus(NodeApi_ServiceResponse *response) {
+    memset(response->data, 0, 24U);
+    response->data_length = 24U;
+#if defined(MULTI_MCU_RELIABILITY)
+    NodeTransport_Context *context = &NodeTransport_Instance;
+    NodeTransport_WriteU32(&response->data[0], (uint32_t)context->events.count);
+    NodeTransport_WriteU32(&response->data[4], context->events.overflows);
+    NodeTransport_WriteU32(&response->data[8], context->events.retries);
+    NodeTransport_WriteU32(&response->data[12], context->events.exhausted);
+    NodeTransport_WriteU32(&response->data[16], context->button_dropped);
+    NodeTransport_WriteU32(&response->data[20], context->events.next_id);
+#endif
 }
 
 void NodeTransport_Process(NodeTransport_State *state) {
@@ -341,12 +461,12 @@ void NodeTransport_Process(NodeTransport_State *state) {
     }
     received = PlatformTransport_Read(NodeTransport_Instance.rx_chunk,
                                       sizeof(NodeTransport_Instance.rx_chunk));
-    if (received == 0U) {
-        return;
-    }
     (void)Protocol_ConsumeBytes(&NodeTransport_Instance.decoder, NodeTransport_Instance.rx_chunk,
                                 received, NodeTransport_HandleRequest,
                                 NodeTransport_HandleDecodeError, &NodeTransport_Instance);
+#if defined(MULTI_MCU_RELIABILITY)
+    NodeTransport_ProcessReliableEvents();
+#endif
 }
 
 NodeApi_Status NodeTransport_PublishServiceEvent(uint16_t service_id, uint16_t event_id,
@@ -358,6 +478,19 @@ NodeApi_Status NodeTransport_PublishServiceEvent(uint16_t service_id, uint16_t e
         ((data == NULL) && (data_length != 0U))) {
         return NODE_API_STATUS_INVALID_ARGUMENT;
     }
+#if defined(MULTI_MCU_RELIABILITY)
+    if (NodeTransport_Instance.reliable_enabled || NodeTransport_Instance.event_negotiating ||
+        NodeTransport_Instance.events.count != 0U) {
+        NodeApi_Status status = NodeEvents_Push(&NodeTransport_Instance.events, service_id,
+                                                event_id, operation_id, data, data_length);
+        if (status == NODE_API_STATUS_BUSY && service_id == NODE_API_SERVICE_GPIO &&
+            NodeTransport_Instance.button_dropped != UINT32_MAX) {
+            ++NodeTransport_Instance.button_dropped;
+        }
+        PlatformSideband_SetIrqPending(NodeTransport_Instance.events.count != 0U);
+        return status;
+    }
+#endif
     event.kind = PROTOCOL_FRAME_EVENT;
     event.sequence = 0U;
     NodeTransport_SetPrefix(&event, NODE_API_MESSAGE_SERVICE_EVENT,

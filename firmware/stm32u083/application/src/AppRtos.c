@@ -5,6 +5,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "AppFaultHistory.h"
 #include "AppServices.h"
 #if defined(MULTI_MCU_CUSTOM_BOOT_SLOT)
 #include "AppBootControl.h"
@@ -73,6 +74,7 @@ static void AppRtos_BringupTask(void *context) {
      * bootloader after this deliberate reset. */
     AppBootControl_ConfirmTrialIfRequested();
 #endif
+    AppFaultHistory_Initialize(AppRtos_NodeTransport.session_generation);
     const int startup_length = snprintf(
         log_line, sizeof(log_line),
         "stm32: fw %s phase-5 %s personality %s session %lu reset %u flags 0x%04x boot %lu\r\n",

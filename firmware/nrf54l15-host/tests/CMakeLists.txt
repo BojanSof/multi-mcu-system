@@ -52,3 +52,37 @@ if(TARGET Protocol::Protocol)
         Diagnostics::Diagnostics VirtualIo::VirtualIo)
     add_test(NAME host_manager_lifetime_metrics COMMAND host_manager_metrics_test)
 endif()
+
+add_executable(host_recovery_policy_test HostRecoveryPolicyTest.c ../src/platform/HostRecoveryPolicy.c)
+target_compile_features(host_recovery_policy_test PRIVATE c_std_11)
+target_compile_options(host_recovery_policy_test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(host_recovery_policy_test PRIVATE ../include)
+add_test(NAME host_recovery_policy COMMAND host_recovery_policy_test)
+if(TARGET Protocol::Protocol)
+    add_executable(host_reliable_event_test manager/HostReliableEventTest.c)
+    target_compile_features(host_reliable_event_test PRIVATE c_std_11)
+    target_compile_options(host_reliable_event_test PRIVATE -Wall -Wextra -Werror
+        -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter -UNDEBUG)
+    target_include_directories(host_reliable_event_test PRIVATE manager/stubs ../include)
+    target_link_libraries(host_reliable_event_test PRIVATE Protocol::Protocol NodeApi::NodeApi
+        Diagnostics::Diagnostics VirtualIo::VirtualIo)
+    add_test(NAME host_reliable_event COMMAND host_reliable_event_test)
+endif()
+if(TARGET host_control_cbor_test)
+    add_executable(host_recovery_control_test HostRecoveryControlTest.c
+        "${HOST_CONTROL_ZCBOR}/src/zcbor_common.c"
+        "${HOST_CONTROL_ZCBOR}/src/zcbor_encode.c"
+        "${HOST_CONTROL_ZCBOR}/src/zcbor_decode.c"
+        "${HOST_CONTROL_MCUMGR}/util/src/zcbor_bulk.c")
+    target_compile_features(host_recovery_control_test PRIVATE c_std_11)
+    target_compile_options(host_recovery_control_test PRIVATE -Wall -Wextra -Werror
+        -Wno-unused-function -Wno-pointer-sign -Wno-unused-but-set-variable -UNDEBUG)
+    target_include_directories(host_recovery_control_test PRIVATE ${METRICS_TEST_INCLUDES})
+    add_test(NAME host_recovery_real_cbor COMMAND host_recovery_control_test)
+endif()
+
+add_executable(host_signals_test signals/HostSignalsTest.c)
+target_include_directories(host_signals_test PRIVATE signals/stubs ../include)
+target_compile_features(host_signals_test PRIVATE c_std_11)
+target_compile_options(host_signals_test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME host_signals_optional_interrupts COMMAND host_signals_test)

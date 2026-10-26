@@ -1,11 +1,11 @@
 # AGENTS.md — Codex rules for Multi-MCU Lab
 
-**Read `DEVELOPMENT_PLAN.md` first.** This is the execution contract for a twelve-phase, generic dual-MCU engineering demonstration using an **nRF54L15-DK** host and **NUCLEO-U083RC** node. Phases 1–8 are the delivered baseline; Phases 9–12 add operator control and automated recovery. The platform is reusable; virtual-I/O services are only an example. Do not reintroduce product-specific test-fixture terminology or hardwire it into portable libraries.
+**Read `DEVELOPMENT_PLAN.md` first.** This is the execution contract for a twelve-phase baseline plus Milestones 13–16, generic dual-MCU engineering demonstration using an **nRF54L15-DK** host and **NUCLEO-U083RC** node. Phases 1–8 are the delivered baseline; Phases 9–12 add operator control and automated recovery. The platform is reusable; virtual-I/O services are only an example. Do not reintroduce product-specific test-fixture terminology or hardwire it into portable libraries.
 
 ## Execution contract
 
 1. At the start run a **dependency audit** (`scripts/doctor.py`, or implement it using the Python standard library first), verify the OS/SDK/toolchain/connected devices, and **tell the user** every required missing non-Python tool, required hardware step and exact install/verification instructions. Do not assume sudo/root, internet access or boards are accessible. You may set up project `.venv` and install pinned Python tool dependencies locally. Never use global Python `pip install`.
-2. Follow the **twelve phases** in `DEVELOPMENT_PLAN.md` and `docs/POST_BASELINE_PLAN.md`. Before a phase, create a concise implementation plan and **freeze shared interfaces**. Run feasible tests and write `docs/PHASE_REPORTS/PHASE_N.md` before calling it finished. If tools or boards are missing, report blocked tests honestly and continue unaffected native/firmware work.
+2. Follow the **twelve baseline phases** in `DEVELOPMENT_PLAN.md` and `docs/POST_BASELINE_PLAN.md`, followed by the approved `docs/RELIABILITY_PLAN.md` continuation. Before a phase, create a concise implementation plan and **freeze shared interfaces**. Run feasible tests and write `docs/PHASE_REPORTS/PHASE_N.md` before calling it finished. If tools or boards are missing, report blocked tests honestly and continue unaffected native/firmware work.
 3. Use **parallel agents** where available, with clearly separated directory ownership and an integrator. Delegate independent library, Nordic, STM32, Python tooling and validation work. Don't allow parallel edits of common headers/schema, `west.yml`, root CMake, `flash_layout.yaml`, image signatures or pinout decisions. If agents unavailable, perform the same tasks sequentially.
 4. Preserve working code: never overwrite a previous valid update/firmware profile in order to satisfy a new experimental bootloader variant. New CMake targets and configurations are independently selectable. Do not change critical boot option bytes without verified human authorization.
 5. When implementing later signed A/B bootloader work, include native state-machine and malformed-image tests before writing hardware flash. Never claim production-level secure boot while SWD/protection are open or private keys are mishandled.
@@ -89,3 +89,15 @@ validation owns emulator/HIL acceptance. No runtime AI dependency is introduced.
 10. Remote reset and PC-streamed signed STM32 A/B updates.
 11. Automated factory-ROM bootloader repair and chained signed recovery.
 12. Reliability metrics, measured optimization, integrated HIL and final release demo.
+
+
+## Approved reliability continuation
+
+13. Nordic watchdog, additive health state and bounded automatic node recovery.
+14. Persistent STM32 fault journal in dedicated reserved pages; host reset cause.
+15. Negotiated acknowledged node events, level-held IRQ and host wake notifications.
+16. Reproducible failure evidence, opt-in interrupted-update HIL and final acceptance.
+
+Preserve historical profiles and application/boot metadata addresses. Shared
+contracts and safety/test gates are in `docs/RELIABILITY_PLAN.md`; integrator owns
+common APIs and flash schema. No automatic ROM repair or new electrical assumptions.

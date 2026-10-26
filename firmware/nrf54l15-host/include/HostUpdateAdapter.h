@@ -5,6 +5,8 @@
 struct smp_streamer;
 void HostUpdateAdapter_Initialize(uint32_t boot_id);
 void HostUpdateAdapter_Process(void);
+/* Main-thread automatic reset; refuses queued or active update/repair ownership. */
+int HostUpdateAdapter_TryRecoveryReset(void);
 bool HostUpdateAdapter_IsBusy(void);
 bool HostUpdateAdapter_ReserveRuntime(void);
 void HostUpdateAdapter_SetRuntimeBusy(bool busy);

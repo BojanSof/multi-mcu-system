@@ -23,6 +23,7 @@ option(MULTI_MCU_PHASE9_CONTROL "Build the opt-in MCUmanager host control group"
 option(MULTI_MCU_PHASE10_UPDATE "Build PC-streamed STM32 updates and supervision" OFF)
 option(MULTI_MCU_PHASE11_ROM "Build factory ROM bootloader repair" OFF)
 option(MULTI_MCU_PHASE12_METRICS "Build operator reliability metrics" OFF)
+option(MULTI_MCU_RELIABILITY "Build watchdog and automatic node recovery" OFF)
 
 # Sysbuild stores image-scoped command-line values as properties; plain option()
 # does not import them into the child application's CMake cache.
@@ -30,7 +31,7 @@ if(SYSBUILD)
     foreach(profile_option MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO
                            MULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO
                            MULTI_MCU_PHASE9_CONTROL MULTI_MCU_PHASE10_UPDATE
-                           MULTI_MCU_PHASE11_ROM MULTI_MCU_PHASE12_METRICS)
+                           MULTI_MCU_PHASE11_ROM MULTI_MCU_PHASE12_METRICS MULTI_MCU_RELIABILITY)
         unset(profile_value)
         zephyr_get(profile_value VAR ${profile_option})
         if(DEFINED profile_value)
@@ -104,4 +105,12 @@ target_include_directories(app PRIVATE
 )
 if(MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO)
     target_compile_definitions(app PRIVATE MULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO=1)
+endif()
+
+if(MULTI_MCU_RELIABILITY)
+    if(NOT MULTI_MCU_PHASE12_METRICS OR NOT CONFIG_WATCHDOG OR NOT CONFIG_HWINFO)
+        message(FATAL_ERROR "Reliability requires Phase12 plus reliability.conf")
+    endif()
+    target_sources(app PRIVATE src/platform/HostReliability.c src/platform/HostRecoveryPolicy.c)
+    target_compile_definitions(app PRIVATE MULTI_MCU_RELIABILITY=1)
 endif()

@@ -24,4 +24,6 @@ profiles:
       size: 0x4000
       journal0: { origin: 0x0803C000, size: 0x800 }
       journal1: { origin: 0x0803C800, size: 0x800 }
-      reserved: { origin: 0x0803D000, size: 0x3000 }
+      fault0: { origin: 0x0803D000, size: 0x800 }
+      fault1: { origin: 0x0803D800, size: 0x800 }
+      reserved: { origin: 0x0803E000, size: 0x2000 }

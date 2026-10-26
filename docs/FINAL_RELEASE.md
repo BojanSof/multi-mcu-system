@@ -75,3 +75,12 @@ Run PHASE_12_TESTING.md's strict100/600 acceptance and explicit update/recovery
 matrix on actual boards. Keep JSON evidence and SDK/Git/tool versions with the
 release outside source control when captures may contain sensitive data. Do not
 mark skipped destructive checks PASS, and do not treat synthetic fixtures as HIL.
+
+
+## Reliability extension status
+
+The approved Milestones13–16 continuation is in [RELIABILITY_PLAN.md](RELIABILITY_PLAN.md).
+Its independently selectable reliability builds and acceptance runner are documented
+in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md). Preserve baseline release bundles;
+new watchdog, journal, acknowledged-event and failure scenarios require their own
+hardware acceptance. Native/build PASS does not promote that acceptance automatically.

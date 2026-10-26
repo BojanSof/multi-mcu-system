@@ -3,6 +3,8 @@
 #include <limits.h>
 #include <string.h>
 
+#include "AppFaultHistory.h"
+#include "NodeTransport.h"
 #include "protocol/ProtocolTypes.h"
 #include "stm32u083_platform/PlatformSideband.h"
 #include "stm32u083_platform/PlatformSupervision.h"
@@ -52,10 +54,28 @@ static NodeApi_Status AppLifecycle_Handler(void *context, const NodeApi_ServiceR
     if ((state == NULL) || (request == NULL) || (response == NULL)) {
         return NODE_API_STATUS_INVALID_ARGUMENT;
     }
+#if defined(MULTI_MCU_RELIABILITY)
+    if (request->command_id == NODE_API_LIFECYCLE_COMMAND_READ_FAULT_HISTORY) {
+        uint32_t cursor;
+        if (request->data_length != 4U) {
+            return NODE_API_STATUS_INVALID_ARGUMENT;
+        }
+        cursor = (uint32_t)request->data[0] | ((uint32_t)request->data[1] << 8U) |
+                 ((uint32_t)request->data[2] << 16U) | ((uint32_t)request->data[3] << 24U);
+        return AppFaultHistory_Read(cursor, response);
+    }
+#endif
     if (request->data_length != 0U) {
         return NODE_API_STATUS_INVALID_ARGUMENT;
     }
     switch (request->command_id) {
+#if defined(MULTI_MCU_RELIABILITY)
+    case NODE_API_LIFECYCLE_COMMAND_CLEAR_FAULT_HISTORY:
+        return AppFaultHistory_Clear(response);
+    case NODE_API_LIFECYCLE_COMMAND_GET_EVENT_STATUS:
+        NodeTransport_GetEventStatus(response);
+        return NODE_API_STATUS_OK;
+#endif
     case NODE_API_LIFECYCLE_COMMAND_GET_STATUS:
         AppLifecycle_WriteStatus(state, response);
         return NODE_API_STATUS_OK;
@@ -107,6 +127,9 @@ NodeApi_Status AppLifecycle_Initialize(AppLifecycle_State *state, NodeApi_Regist
         .handler = AppLifecycle_Handler,
         .context = state,
     };
+#if defined(MULTI_MCU_RELIABILITY)
+    service.descriptor.version_minor = 1U;
+#endif
     return NodeApi_RegisterService(registry, &service);
 }
 

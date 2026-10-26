@@ -15,6 +15,7 @@ Profiles:
   phase9         MCUboot/MCUmgr host control API for scripts/mmctl
   phase10        Host control plus streamed STM32 A/B update and remote reset
   phase11        Phase 10 plus factory-ROM bootloader repair
+  reliability    Phase 12 plus watchdog, bounded recovery and acknowledged events
   phase12        Final metrics/operator profile (warning/error logs)
   phase12-verbose Same metrics profile with informational logs for comparison
   phase7-query   STM bootloader query client
@@ -45,7 +46,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$profile" in
-    default|phase6|phase9|phase10|phase11|phase12|phase12-verbose|phase7-query|phase7-update) ;;
+    default|phase6|phase9|phase10|phase11|phase12|phase12-verbose|reliability|phase7-query|phase7-update) ;;
     *) echo "error: unknown profile: $profile" >&2; exit 2 ;;
 esac
 
@@ -113,18 +114,27 @@ case "$profile" in
             '-DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay;boards/nrf54l15dk_nrf54l15_cpuapp_phase10_update.overlay' \
             -DSB_EXTRA_CONF_FILE="$source_dir/sysbuild_phase6_mcumgr.conf"
         ;;
-    phase12|phase12-verbose)
+    phase12|phase12-verbose|reliability)
         build_dir="$repo_root/build/nrf54l15-host-$profile"
         log_config=phase12_optimized.conf
         [ "$profile" != phase12-verbose ] || log_config=phase12_verbose.conf
+        reliability_config=
+        reliability_overlay=
+        reliability_option=OFF
+        if [ "$profile" = reliability ]; then
+            reliability_config=';reliability.conf'
+            reliability_overlay=';boards/nrf54l15dk_nrf54l15_cpuapp_reliability.overlay'
+            reliability_option=ON
+        fi
         "$west_command" build -p always -b "$board" "$source_dir" \
             --build-dir "$build_dir" -- \
             -Dnrf54l15-host_MULTI_MCU_PHASE9_CONTROL=ON \
             -Dnrf54l15-host_MULTI_MCU_PHASE10_UPDATE=ON \
             -Dnrf54l15-host_MULTI_MCU_PHASE11_ROM=ON \
             -Dnrf54l15-host_MULTI_MCU_PHASE12_METRICS=ON \
-            "-DEXTRA_CONF_FILE=phase6_mcumgr.conf;phase9_control.conf;phase10_update.conf;phase11_rom.conf;phase12_metrics.conf;$log_config" \
-            '-DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay;boards/nrf54l15dk_nrf54l15_cpuapp_phase10_update.overlay' \
+            "-Dnrf54l15-host_MULTI_MCU_RELIABILITY=$reliability_option" \
+            "-DEXTRA_CONF_FILE=phase6_mcumgr.conf;phase9_control.conf;phase10_update.conf;phase11_rom.conf;phase12_metrics.conf;$log_config$reliability_config" \
+            "-DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay;boards/nrf54l15dk_nrf54l15_cpuapp_phase10_update.overlay$reliability_overlay" \
             -DSB_EXTRA_CONF_FILE="$source_dir/sysbuild_phase6_mcumgr.conf"
         ;;
     phase7-query)
@@ -151,7 +161,7 @@ case "$profile" in
 esac
 
 if [ "$profile" = phase9 ] || [ "$profile" = phase10 ] || [ "$profile" = phase11 ] ||
-   [ "$profile" = phase12 ] || [ "$profile" = phase12-verbose ]; then
+   [ "$profile" = phase12 ] || [ "$profile" = phase12-verbose ] || [ "$profile" = reliability ]; then
     application_dir="$build_dir/nrf54l15-host"
     if ! grep -q '^MULTI_MCU_PHASE9_CONTROL:BOOL=ON$' "$application_dir/CMakeCache.txt"; then
         echo "error: Phase 9 control was not enabled in the application image" >&2
@@ -164,7 +174,7 @@ if [ "$profile" = phase9 ] || [ "$profile" = phase10 ] || [ "$profile" = phase11
 fi
 
 if [ "$profile" = phase10 ] || [ "$profile" = phase11 ] ||
-   [ "$profile" = phase12 ] || [ "$profile" = phase12-verbose ]; then
+   [ "$profile" = phase12 ] || [ "$profile" = phase12-verbose ] || [ "$profile" = reliability ]; then
     if ! grep -q '^MULTI_MCU_PHASE10_UPDATE:BOOL=ON$' "$application_dir/CMakeCache.txt"; then
         echo "error: Phase 10 update was not enabled in the application image" >&2
         exit 1
@@ -177,7 +187,7 @@ if [ "$profile" = phase10 ] || [ "$profile" = phase11 ] ||
     done
 fi
 
-if [ "$profile" = phase11 ] || [ "$profile" = phase12 ] || [ "$profile" = phase12-verbose ]; then
+if [ "$profile" = phase11 ] || [ "$profile" = phase12 ] || [ "$profile" = phase12-verbose ] || [ "$profile" = reliability ]; then
     if ! grep -q '^MULTI_MCU_PHASE11_ROM:BOOL=ON$' "$application_dir/CMakeCache.txt"; then
         echo "error: Phase 11 ROM recovery was not enabled in the application image" >&2
         exit 1
@@ -188,7 +198,7 @@ if [ "$profile" = phase11 ] || [ "$profile" = phase12 ] || [ "$profile" = phase1
     fi
 fi
 
-if [ "$profile" = phase12 ] || [ "$profile" = phase12-verbose ]; then
+if [ "$profile" = phase12 ] || [ "$profile" = phase12-verbose ] || [ "$profile" = reliability ]; then
     if ! grep -q '^MULTI_MCU_PHASE12_METRICS:BOOL=ON$' "$application_dir/CMakeCache.txt" ||
        ! grep -q 'HostControl_MetricsRead' "$application_dir/zephyr/zephyr.map"; then
         echo "error: Phase 12 metrics are missing from linked application" >&2

@@ -89,3 +89,20 @@ loss or duplicate operation; reproducible update/repair/rollback commands and ev
 Every phase report records exact commands, Git/SDK versions, size/stack data and
 PASS/FAIL/NOT_RUN_HARDWARE. No BLE, GUI, multi-node bus, runtime AI, irreversible
 protection or production secure-boot claims are included.
+
+
+## Approved reliability continuation — 2026-10-25
+
+Milestones 13–16 are authorized in [RELIABILITY_PLAN.md](RELIABILITY_PLAN.md).
+Their scope is dual-watchdog health, bounded automatic STM reset recovery, persistent
+node faults, negotiated acknowledged events and reproducible failure acceptance.
+Existing profiles and update paths remain selectable. New functionality initially
+uses a `reliability` profile; hardware acceptance precedes recommending it as default.
+All destructive HIL is opt-in; no option-byte/protection changes or automatic ROM repair.
+
+
+Continuation status (2026-10-26): Milestones13–16 software implementation and native/
+firmware verification passed (26 root CTests,2 bootloader CTests,331 Python tests).
+Hardware acceptance remains separate: see PHASE_REPORTS/PHASE_13.md through PHASE_16.md
+and RELIABILITY_TESTING.md. Historical Phase12 hardware results remain historical;
+no new watchdog/journal/IRQ/interruption acceptance is inferred from them.

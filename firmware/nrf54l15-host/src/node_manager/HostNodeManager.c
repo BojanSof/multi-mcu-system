@@ -66,9 +66,20 @@ typedef struct {
     int64_t reboot_times[HOST_REBOOT_LATCH_COUNT];
     size_t reboot_count;
     Diagnostics_State diagnostics;
+#if defined(MULTI_MCU_RELIABILITY)
+    uint32_t last_event_id;
+    bool reliable_events;
+    bool event_ack_pending;
+    bool lifecycle_hold;
+#endif
 } HostNodeManager_Context;
 
 static HostNodeManager_Context HostNodeManager;
+#if defined(MULTI_MCU_RELIABILITY)
+/* Delivery history belongs to one host boot, not a manager discovery attempt. */
+static uint32_t HostNodeManager_ReceiverSession;
+static uint32_t HostNodeManager_ReceiverCursor;
+#endif
 static HostNodeManager_RecordCallback HostNodeManager_RecordObserver;
 
 void HostNodeManager_SetRecordCallback(HostNodeManager_RecordCallback callback) {
@@ -76,6 +87,13 @@ void HostNodeManager_SetRecordCallback(HostNodeManager_RecordCallback callback) 
 }
 
 bool HostNodeManager_IsBusy(void) { return HostNodeManager.pending_message != 0U; }
+bool HostNodeManager_RecoverySuppressed(void) {
+#if defined(MULTI_MCU_RELIABILITY)
+    return HostNodeManager.lifecycle_hold;
+#else
+    return false;
+#endif
+}
 
 static void HostNodeManager_Emit(HostNodeManager_RecordKind kind, uint32_t operation,
                                  uint16_t service, uint16_t code, uint32_t status,
@@ -180,6 +198,10 @@ static bool HostNodeManager_ParseLifecycleStatus(const uint8_t *data, size_t dat
         return false;
     }
     HostNodeManager.status.node_lifecycle_state = (NodeApi_LifecycleState)data[0];
+#if defined(MULTI_MCU_RELIABILITY)
+    HostNodeManager.lifecycle_hold =
+        data[0] == NODE_API_LIFECYCLE_MAINTENANCE || data[0] == NODE_API_LIFECYCLE_SHUTDOWN;
+#endif
     HostNodeManager.status.node_reset_reason = (NodeApi_ResetReason)data[1];
     HostNodeManager.status.node_raw_reset_flags = HostNodeManager_ReadU16(&data[2]);
     HostNodeManager.status.node_boot_count = HostNodeManager_ReadU32(&data[4]);
@@ -395,6 +417,10 @@ static void HostNodeManager_Advance(uint16_t message_id, const Protocol_Frame *f
                 return;
             }
         }
+#if defined(MULTI_MCU_RELIABILITY)
+        HostNodeManager.reliable_events = false;
+        HostNodeManager.event_ack_pending = false;
+#endif
         HostNodeManager.last_session = session;
         HostNodeManager.status.session_generation = session;
         HostNodeManager.status.state = HOST_LINK_IDENTITY;
@@ -428,7 +454,36 @@ static void HostNodeManager_Advance(uint16_t message_id, const Protocol_Frame *f
         HostNodeManager.status.capabilities = HostNodeManager_ReadU32(&frame->payload[6]);
         HostNodeManager.status.state = HOST_LINK_SERVICES;
         HostNodeManager_CompleteRequest();
+#if defined(MULTI_MCU_RELIABILITY)
+        if ((HostNodeManager.status.capabilities & NODE_API_CAPABILITY_RELIABLE_EVENTS) != 0U) {
+            (void)HostNodeManager_SendRequest(NODE_API_MESSAGE_ENABLE_RELIABLE_EVENTS, NULL, 0U);
+        } else
+#endif
+        {
+            (void)HostNodeManager_SendRequest(NODE_API_MESSAGE_LIST_SERVICES, NULL, 0U);
+        }
+#if defined(MULTI_MCU_RELIABILITY)
+    } else if (message_id == NODE_API_MESSAGE_ENABLE_RELIABLE_EVENTS) {
+        if (frame->payload_length != NODE_API_REQUEST_PREFIX_SIZE + 4U ||
+            session != HostNodeManager.status.session_generation ||
+            HostNodeManager_ReadU32(&frame->payload[6]) == 0U) {
+            HostNodeManager.status.rejected_responses++;
+            return;
+        }
+        const uint32_t first = HostNodeManager_ReadU32(&frame->payload[6]);
+        if (HostNodeManager_ReceiverSession != session) {
+            HostNodeManager_ReceiverSession = session;
+            HostNodeManager_ReceiverCursor = first - 1U;
+        } else if (first > HostNodeManager_ReceiverCursor + 1U) {
+            /* A legacy consumer may have drained retained events while we were away. */
+            HostNodeManager_Count(&HostNodeManager_Lifetime.reliable_gaps);
+            HostNodeManager_ReceiverCursor = first - 1U;
+        }
+        HostNodeManager.last_event_id = HostNodeManager_ReceiverCursor;
+        HostNodeManager.reliable_events = true;
+        HostNodeManager_CompleteRequest();
         (void)HostNodeManager_SendRequest(NODE_API_MESSAGE_LIST_SERVICES, NULL, 0U);
+#endif
     } else if (message_id == NODE_API_MESSAGE_LIST_SERVICES) {
         size_t count;
         size_t index;
@@ -569,6 +624,17 @@ static void HostNodeManager_Advance(uint16_t message_id, const Protocol_Frame *f
                     HostNodeManager.status.node_management_major,
                     HostNodeManager.status.node_management_minor,
                     HostNodeManager.status.node_build_id);
+        } else if (HostNodeManager.pending_service == NODE_API_SERVICE_LIFECYCLE &&
+                   ((HostNodeManager.pending_command ==
+                         NODE_API_LIFECYCLE_COMMAND_READ_FAULT_HISTORY &&
+                     response_data_length == NODE_API_FAULT_HISTORY_RESPONSE_SIZE) ||
+                    (HostNodeManager.pending_command ==
+                         NODE_API_LIFECYCLE_COMMAND_CLEAR_FAULT_HISTORY &&
+                     response_data_length == NODE_API_FAULT_HISTORY_HEADER_SIZE) ||
+                    (HostNodeManager.pending_command ==
+                         NODE_API_LIFECYCLE_COMMAND_GET_EVENT_STATUS &&
+                     response_data_length == 24U))) {
+            /* Additive lifecycle results are consumed by the typed PC client. */
         } else if (HostNodeManager.pending_service == NODE_API_SERVICE_LIFECYCLE) {
             HostNodeManager_RejectFrame((uint32_t)response_data_length);
         }
@@ -650,11 +716,76 @@ static void HostNodeManager_EventReceived(const Protocol_Frame *frame) {
     }
 }
 
+#if defined(MULTI_MCU_RELIABILITY)
+static void HostNodeManager_SendEventAck(void) {
+    if (!HostNodeManager.event_ack_pending || !HostNodeManager.reliable_events ||
+        HostNodeManager.status.session_generation == 0U) {
+        return;
+    }
+    Protocol_Frame ack = {0};
+    uint8_t encoded[PROTOCOL_MAX_ENCODED_FRAME];
+    size_t length;
+    ack.kind = PROTOCOL_FRAME_REQUEST;
+    ack.sequence = 0U;
+    ack.payload_length = NODE_API_REQUEST_PREFIX_SIZE + 4U;
+    HostNodeManager_WriteU16(ack.payload, NODE_API_MESSAGE_EVENT_ACK);
+    HostNodeManager_WriteU32(&ack.payload[2], HostNodeManager.status.session_generation);
+    HostNodeManager_WriteU32(&ack.payload[6], HostNodeManager.last_event_id);
+    if (Protocol_EncodeFrame(&ack, encoded, sizeof(encoded), &length) == PROTOCOL_STATUS_OK &&
+        HostTransport_Write(encoded, length) == 0) {
+        HostNodeManager.event_ack_pending = false;
+    } else {
+        HostNodeManager_Count(&HostNodeManager_Lifetime.event_ack_retries);
+    }
+}
+static void HostNodeManager_ReliableEventReceived(const Protocol_Frame *frame) {
+    const size_t header = NODE_API_REQUEST_PREFIX_SIZE + 4U + NODE_API_SERVICE_EVENT_HEADER_SIZE;
+    if (HostNodeManager_RecordObserver == NULL || !HostNodeManager.reliable_events ||
+        frame->sequence != 0U || frame->flags != 0U || frame->payload_length < header ||
+        frame->payload_length > header + NODE_API_SERVICE_DATA_MAX_LENGTH ||
+        HostNodeManager_ReadU32(&frame->payload[2]) != HostNodeManager.status.session_generation) {
+        HostNodeManager.status.rejected_responses++;
+        return;
+    }
+    const uint32_t id = HostNodeManager_ReadU32(&frame->payload[6]);
+    uint32_t next = HostNodeManager.last_event_id + 1U;
+    if (next == 0U) {
+        next = 1U;
+    }
+    if (id == 0U || (id != next && (int32_t)(id - HostNodeManager.last_event_id) > 0)) {
+        HostNodeManager_Count(&HostNodeManager_Lifetime.reliable_gaps);
+        HostNodeManager.status.rejected_responses++;
+        return;
+    }
+    if (id == next) {
+        /* Legacy event processing admits bounded payloads synchronously to history. */
+        Protocol_Frame legacy = *frame;
+        HostNodeManager_WriteU16(legacy.payload, NODE_API_MESSAGE_SERVICE_EVENT);
+        memmove(&legacy.payload[6], &frame->payload[10], frame->payload_length - 10U);
+        legacy.payload_length -= 4U;
+        HostNodeManager_EventReceived(&legacy);
+        HostNodeManager.last_event_id = id;
+        HostNodeManager_ReceiverCursor = id;
+    } else {
+        HostNodeManager_Count(&HostNodeManager_Lifetime.reliable_duplicates);
+    }
+    HostNodeManager.event_ack_pending = true;
+    HostNodeManager_SendEventAck();
+}
+#endif
+
 static void HostNodeManager_FrameReceived(const Protocol_Frame *frame, void *context) {
     uint16_t message_id;
 
     ARG_UNUSED(context);
     if (frame->kind == PROTOCOL_FRAME_EVENT) {
+#if defined(MULTI_MCU_RELIABILITY)
+        if (frame->payload_length >= 2U &&
+            HostNodeManager_ReadU16(frame->payload) == NODE_API_MESSAGE_RELIABLE_EVENT) {
+            HostNodeManager_ReliableEventReceived(frame);
+            return;
+        }
+#endif
         HostNodeManager_EventReceived(frame);
         return;
     }
@@ -725,6 +856,11 @@ void HostNodeManager_Initialize(void) {
     }
 }
 
+void HostNodeManager_LatchFault(void) {
+    HostNodeManager_ClearPending();
+    HostNodeManager.status.state = HOST_LINK_FAULT_LATCHED;
+}
+
 void HostNodeManager_Process(void) {
     uint8_t received[64];
     size_t count;
@@ -740,6 +876,9 @@ void HostNodeManager_Process(void) {
         }
     } while (count != 0U);
 
+#if defined(MULTI_MCU_RELIABILITY)
+    HostNodeManager_SendEventAck();
+#endif
     if (HostNodeManager.status.state == HOST_LINK_DISABLED ||
         HostNodeManager.status.state == HOST_LINK_FAULT_LATCHED) {
         return;
@@ -759,6 +898,10 @@ void HostNodeManager_Process(void) {
             }
         }
         HostNodeManager.ready = false;
+#if defined(MULTI_MCU_RELIABILITY)
+        HostNodeManager.reliable_events = false;
+        HostNodeManager.event_ack_pending = false;
+#endif
         HostNodeManager.status.state = HOST_LINK_DISCOVERING;
         HostNodeManager.status.session_generation = 0U;
         HostNodeManager.status.service_count = 0U;
@@ -878,6 +1021,18 @@ int HostNodeManager_CallServiceWithOperation(uint16_t service_id, uint16_t comma
         HostNodeManager.pending_command = 0U;
         return -EBUSY;
     }
+#if defined(MULTI_MCU_RELIABILITY)
+    if (service_id == NODE_API_SERVICE_LIFECYCLE) {
+        if (command_id == NODE_API_LIFECYCLE_COMMAND_ENTER_MAINTENANCE ||
+            command_id == NODE_API_LIFECYCLE_COMMAND_ENTER_SHUTDOWN) {
+            /* Preserve operator intent even if its acceptance response is lost. */
+            HostNodeManager.lifecycle_hold = true;
+        } else if (command_id == NODE_API_LIFECYCLE_COMMAND_EXIT_MAINTENANCE ||
+                   command_id == NODE_API_LIFECYCLE_COMMAND_EXIT_SHUTDOWN) {
+            HostNodeManager.lifecycle_hold = false;
+        }
+    }
+#endif
     return 0;
 }
 

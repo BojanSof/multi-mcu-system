@@ -14,6 +14,9 @@
 #include <zephyr/sys/util.h>
 
 #include "HostNodeManager.h"
+#if defined(MULTI_MCU_RELIABILITY)
+#include "HostReliability.h"
+#endif
 #include "HostSignals.h"
 #include "HostTransport.h"
 #if defined(MULTI_MCU_PHASE9_CONTROL)
@@ -187,6 +190,13 @@ int main(void) {
     HostNodeManager_Initialize();
 #if defined(MULTI_MCU_PHASE9_CONTROL)
     HostControl_Initialize();
+#if defined(MULTI_MCU_RELIABILITY)
+    result = HostReliability_Initialize();
+    if (result != 0) {
+        LOG_ERR("Host watchdog initialization failed: %d", result);
+        return result;
+    }
+#endif
 #endif
 
 #if defined(CONFIG_BOOTLOADER_MCUBOOT)
@@ -280,6 +290,10 @@ int main(void) {
 #endif
 #if defined(MULTI_MCU_PHASE9_CONTROL)
         HostControl_Process();
+#if defined(MULTI_MCU_RELIABILITY)
+        HostReliability_Process();
+        HostReliability_MainProgress();
+#endif
 #endif
         HostNodeManager_Status link_status = HostNodeManager_GetStatus();
         if (link_status.state != reported_link_state) {
@@ -404,7 +418,11 @@ int main(void) {
             }
         }
 
+#if defined(MULTI_MCU_RELIABILITY)
+        HostSignals_Wait();
+#else
         k_msleep(10);
+#endif
     }
 
     return 0;

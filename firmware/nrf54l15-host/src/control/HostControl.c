@@ -19,6 +19,9 @@
 #endif
 
 #include "HostNodeManager.h"
+#if defined(MULTI_MCU_RELIABILITY)
+#include "HostReliability.h"
+#endif
 #if defined(MULTI_MCU_PHASE12_METRICS)
 #include "HostTransport.h"
 #endif
@@ -71,6 +74,12 @@ static uint32_t HostControl_NextOperation;
 static bool HostControl_Queued;
 static bool HostControl_Busy;
 static uint32_t HostControl_BootId;
+#if defined(MULTI_MCU_RELIABILITY)
+static HostReliability_Status HostControl_Health;
+static bool HostControl_ClearQueued;
+static uint64_t HostControl_ClearRequests[HOST_CONTROL_CACHE_SIZE];
+static size_t HostControl_ClearNext;
+#endif
 #if defined(MULTI_MCU_PHASE12_METRICS)
 static HostNodeManager_Metrics HostControl_Metrics;
 static HostTransport_Stats HostControl_TransportMetrics;
@@ -188,6 +197,15 @@ void HostControl_Initialize(void) {
 }
 
 void HostControl_Process(void) {
+#if defined(MULTI_MCU_RELIABILITY)
+    k_mutex_lock(&HostControl_Lock, K_FOREVER);
+    const bool clear = HostControl_ClearQueued;
+    HostControl_ClearQueued = false;
+    k_mutex_unlock(&HostControl_Lock);
+    if (clear) {
+        HostReliability_Clear();
+    }
+#endif
     HostControl_Call call;
     bool queued;
     const HostNodeManager_Status current = HostNodeManager_GetStatus();
@@ -239,6 +257,9 @@ void HostControl_Process(void) {
 
     k_mutex_lock(&HostControl_Lock, K_FOREVER);
     HostControl_Status = HostNodeManager_GetStatus();
+#if defined(MULTI_MCU_RELIABILITY)
+    HostControl_Health = HostReliability_GetStatus();
+#endif
     HostControl_Busy = HostNodeManager_IsBusy() || HostControl_Queued;
 #if defined(MULTI_MCU_PHASE10_UPDATE)
 #if defined(MULTI_MCU_PHASE11_ROM)
@@ -259,6 +280,76 @@ void HostControl_Process(void) {
     HostControl_SampleMetrics();
 #endif
 }
+
+#if defined(MULTI_MCU_RELIABILITY)
+static bool HostControl_EncodeHealth(zcbor_state_t *state) {
+    return HostControl_Text(state, "health",
+                            HostControl_Health.health == NULL ? "degraded"
+                                                              : HostControl_Health.health) &&
+           HostControl_Text(state, "reason",
+                            HostControl_Health.reason == NULL ? "startup"
+                                                              : HostControl_Health.reason) &&
+           HostControl_Uint(state, "recovery_attempts", HostControl_Health.recovery_attempts) &&
+           HostControl_Uint(state, "recovery_total", HostControl_Health.recovery_total) &&
+           HostControl_Uint(state, "reset_cause", HostControl_Health.reset_cause) &&
+           zcbor_tstr_put_lit(state, "watchdog") &&
+           zcbor_bool_put(state, HostControl_Health.watchdog) &&
+           zcbor_tstr_put_lit(state, "gpio_interrupts") &&
+           zcbor_bool_put(state, HostControl_Health.gpio_interrupts) &&
+           zcbor_tstr_put_lit(state, "failed") && zcbor_bool_put(state, HostControl_Health.failed);
+}
+static int HostControl_RecoveryRead(struct smp_streamer *stream) {
+    k_mutex_lock(&HostControl_Lock, K_FOREVER);
+    bool ok = HostControl_Uint(stream->writer->zs, "host_boot_id", HostControl_BootId) &&
+              HostControl_EncodeHealth(stream->writer->zs);
+    k_mutex_unlock(&HostControl_Lock);
+    return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
+}
+static int HostControl_RecoveryWrite(struct smp_streamer *stream) {
+    uint32_t boot = 0U;
+    uint64_t request = 0U;
+    struct zcbor_string action = {0};
+    size_t decoded;
+    struct zcbor_map_decode_key_val keys[] = {
+        ZCBOR_MAP_DECODE_KEY_DECODER("expected_boot_id", zcbor_uint32_decode, &boot),
+        ZCBOR_MAP_DECODE_KEY_DECODER("request_id", zcbor_uint64_decode, &request),
+        ZCBOR_MAP_DECODE_KEY_DECODER("action", zcbor_tstr_decode, &action),
+    };
+    if (zcbor_map_decode_bulk(stream->reader->zs, keys, ARRAY_SIZE(keys), &decoded) != 0 ||
+        decoded != 3U || request == 0U || action.len != 5U ||
+        memcmp(action.value, "clear", 5U) != 0) {
+        return MGMT_ERR_EINVAL;
+    }
+    zcbor_state_t *state = stream->writer->zs;
+    k_mutex_lock(&HostControl_Lock, K_FOREVER);
+    int result;
+    if (boot != HostControl_BootId) {
+        result = HostControl_Error(state, "host_restarted");
+    } else {
+        bool seen = false;
+        for (size_t i = 0U; i < HOST_CONTROL_CACHE_SIZE; ++i) {
+            seen = seen || HostControl_ClearRequests[i] == request;
+        }
+        if (!seen && (HostControl_ClearQueued ||
+                      (HostControl_Busy && HostControl_Status.state == HOST_LINK_ONLINE) ||
+                      HostControl_AsyncActuator.pending || !HostUpdateAdapter_ReserveRuntime())) {
+            result = HostControl_Error(state, "busy");
+        } else {
+            if (!seen) {
+                HostControl_ClearRequests[HostControl_ClearNext] = request;
+                HostControl_ClearNext = (HostControl_ClearNext + 1U) % HOST_CONTROL_CACHE_SIZE;
+                HostControl_ClearQueued = true;
+                HostControl_Busy = true;
+            }
+            bool ok = zcbor_tstr_put_lit(state, "request_id") && zcbor_uint64_put(state, request) &&
+                      zcbor_tstr_put_lit(state, "accepted") && zcbor_bool_put(state, true);
+            result = ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
+        }
+    }
+    k_mutex_unlock(&HostControl_Lock);
+    return result;
+}
+#endif
 
 static int HostControl_StatusRead(struct smp_streamer *stream) {
     zcbor_state_t *state = stream->writer->zs;
@@ -289,6 +380,9 @@ static int HostControl_StatusRead(struct smp_streamer *stream) {
               HostControl_Uint(state, "dropped", HostControl_Dropped) &&
               zcbor_tstr_put_lit(state, "busy") && zcbor_bool_put(state, busy) &&
               HostControl_Text(state, "firmware", firmware);
+#if defined(MULTI_MCU_RELIABILITY)
+    ok = ok && HostControl_EncodeHealth(state);
+#endif
 #if defined(MULTI_MCU_PHASE12_METRICS)
     ok = ok && zcbor_tstr_put_lit(state, "metrics") && zcbor_bool_put(state, true);
 #endif
@@ -458,8 +552,8 @@ static int HostControl_EventsRead(struct smp_streamer *stream) {
     return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
 }
 
-#if !defined(MULTI_MCU_PHASE12_METRICS) || !defined(MULTI_MCU_PHASE11_ROM) ||                      \
-    !defined(MULTI_MCU_PHASE10_UPDATE)
+#if !defined(MULTI_MCU_RELIABILITY) || !defined(MULTI_MCU_PHASE12_METRICS) ||                      \
+    !defined(MULTI_MCU_PHASE11_ROM) || !defined(MULTI_MCU_PHASE10_UPDATE)
 static int HostControl_Unsupported(struct smp_streamer *stream) {
     return HostControl_Error(stream->writer->zs, "unsupported");
 }
@@ -498,12 +592,22 @@ static int HostControl_MetricsRead(struct smp_streamer *stream) {
               HostControl_Uint(state, "work_stack_free", HostControl_WorkFree) &&
               zcbor_tstr_put_lit(state, "stack_supported") &&
               zcbor_bool_put(state, HostControl_StackSupported);
+#if defined(MULTI_MCU_RELIABILITY)
+    ok = ok && HostControl_Uint(state, "reliable_duplicates", m->reliable_duplicates) &&
+         HostControl_Uint(state, "reliable_gaps", m->reliable_gaps) &&
+         HostControl_Uint(state, "event_ack_retries", m->event_ack_retries);
+#endif
     k_mutex_unlock(&HostControl_Lock);
     return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
 }
 #endif
 
 static const struct mgmt_handler HostControl_Handlers[] = {
+#if defined(MULTI_MCU_RELIABILITY)
+    [8] = {.mh_read = HostControl_RecoveryRead, .mh_write = HostControl_RecoveryWrite},
+#else
+    [8] = {.mh_read = HostControl_Unsupported, .mh_write = HostControl_Unsupported},
+#endif
     [0] = {.mh_read = HostControl_StatusRead},
     [1] = {.mh_read = HostControl_ServicesRead},
     [2] = {.mh_write = HostControl_CallWrite},
@@ -512,7 +616,8 @@ static const struct mgmt_handler HostControl_Handlers[] = {
     [4] = {.mh_read = HostUpdateAdapter_StatusRead, .mh_write = HostUpdateAdapter_ResetWrite},
     [5] = {.mh_read = HostUpdateAdapter_StatusRead, .mh_write = HostUpdateAdapter_UpdateWrite},
 #else
-    [4] = {.mh_write = HostControl_Unsupported}, [5] = {.mh_write = HostControl_Unsupported},
+    [4] = {.mh_write = HostControl_Unsupported},
+    [5] = {.mh_write = HostControl_Unsupported},
 #endif
 #if defined(MULTI_MCU_PHASE11_ROM)
     [6] = {.mh_read = HostUpdateAdapter_RomStatusRead, .mh_write = HostUpdateAdapter_RomWrite},

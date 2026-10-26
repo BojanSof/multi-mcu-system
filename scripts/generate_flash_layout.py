@@ -141,6 +141,17 @@ def main() -> int:
     if (journal1_origin, journal1_size) != (metadata_origin + page_size, page_size):
         raise ValueError("journal1 must be the second metadata page")
 
+    fault0_origin, fault0_size = region(profile["metadata"], "fault0")
+    fault1_origin, fault1_size = region(profile["metadata"], "fault1")
+    reserved_origin, reserved_size = region(profile["metadata"], "reserved")
+    if (fault0_origin, fault0_size) != (metadata_origin + 2 * page_size, page_size):
+        raise ValueError("fault0 must follow the two boot journal pages")
+    if (fault1_origin, fault1_size) != (fault0_origin + page_size, page_size):
+        raise ValueError("fault1 must follow fault0")
+    if (reserved_origin != fault1_origin + page_size or
+            reserved_origin + reserved_size != metadata_origin + metadata_size):
+        raise ValueError("reserved flash must follow fault pages and end at metadata boundary")
+
     args.output.mkdir(parents=True, exist_ok=True)
     constants = f"""/* Generated from flash_layout.yaml; do not edit. */
 #ifndef MULTI_MCU_FLASH_LAYOUT_H
@@ -158,6 +169,8 @@ def main() -> int:
 #define MULTI_MCU_METADATA_SIZE 0x{metadata_size:X}UL
 #define MULTI_MCU_METADATA_JOURNAL0_ORIGIN 0x{journal0_origin:08X}UL
 #define MULTI_MCU_METADATA_JOURNAL1_ORIGIN 0x{journal1_origin:08X}UL
+#define MULTI_MCU_FAULT_JOURNAL0_ORIGIN 0x{fault0_origin:08X}UL
+#define MULTI_MCU_FAULT_JOURNAL1_ORIGIN 0x{fault1_origin:08X}UL
 #endif
 """
     (args.output / "flash_layout.h").write_text(constants, encoding="utf-8")

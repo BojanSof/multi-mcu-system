@@ -2,6 +2,7 @@
 
 #include <limits.h>
 
+#include "AppFaultHistory.h"
 #include "NodeTransport.h"
 #include "stm32u083_platform/PlatformDebug.h"
 #include "stm32u0xx_hal.h"
@@ -60,6 +61,7 @@ static void AppDiagnostics_Record(uint16_t code, Diagnostics_Severity severity,
         return;
     }
     (void)Diagnostics_RecordFault(&AppDiagnostics_Instance->diagnostics, &fault);
+    AppFaultHistory_RecordFault(&fault);
     AppDiagnostics_Instance->pending_record_event = fault;
     AppDiagnostics_Instance->record_event_pending = true;
 }
@@ -230,6 +232,10 @@ bool AppDiagnostics_ConsumeTaskStall(void) {
         return false;
     }
     AppDiagnostics_Instance->task_stall_pending = false;
+#if defined(MULTI_MCU_RELIABILITY)
+    AppDiagnostics_Record(0x0201U, DIAGNOSTICS_SEVERITY_FATAL, DIAGNOSTICS_DOMAIN_RUNTIME, 0U,
+                          DIAGNOSTICS_INJECTION_TASK_STALL);
+#endif
     return true;
 }
 

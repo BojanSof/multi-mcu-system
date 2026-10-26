@@ -196,6 +196,25 @@ static int HostUpdate_Pulse(void *context) {
     return -ENODEV;
 #endif
 }
+int HostUpdateAdapter_TryRecoveryReset(void) {
+    k_mutex_lock(&HostUpdate_Lock, K_FOREVER);
+    if (HostUpdate_Queued || HostUpdate_Processing || HostUpdate_Status.active ||
+        HostRom_IsBusy()) {
+        k_mutex_unlock(&HostUpdate_Lock);
+        return -EBUSY;
+    }
+    if (!HostUpdate_Available) {
+        k_mutex_unlock(&HostUpdate_Lock);
+        return -ENODEV;
+    }
+    HostUpdate_Processing = true;
+    k_mutex_unlock(&HostUpdate_Lock);
+    int result = HostUpdate_Pulse(NULL);
+    k_mutex_lock(&HostUpdate_Lock, K_FOREVER);
+    HostUpdate_Processing = false;
+    k_mutex_unlock(&HostUpdate_Lock);
+    return result;
+}
 static void HostUpdate_RuntimeRestart(void *context) {
     (void)context;
     HostTransport_Flush();

@@ -1,4 +1,7 @@
 #include "HostTransport.h"
+#if defined(MULTI_MCU_RELIABILITY)
+#include "HostSignals.h"
+#endif
 
 #include <errno.h>
 
@@ -39,6 +42,9 @@ static void HostTransport_Interrupt(const struct device *device, void *context) 
             if (count > 0) {
                 uint32_t accepted = ring_buf_put(&HostTransport_RxRing, buffer, (uint32_t)count);
                 atomic_add(&HostTransport_ReceivedBytes, accepted);
+#if defined(MULTI_MCU_RELIABILITY)
+                HostSignals_Wake();
+#endif
                 if (accepted != (uint32_t)count) {
                     atomic_add(&HostTransport_ReceiveOverflows, (atomic_val_t)count - accepted);
                 }

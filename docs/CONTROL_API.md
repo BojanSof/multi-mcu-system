@@ -197,3 +197,49 @@ transfer inactivity. A reset-only job has zero transfer throughput.
 Normal phase12 compiles warning/error logs only; phase12-verbose retains info logs
 for a measured resource baseline. Typed SMP events/metrics are identical; older
 profiles keep their logging behavior.
+
+
+## Reliability extension (Milestones 13–16, API v1 additive contract)
+
+Available only in the independently selected `reliability` profile. Existing fields
+and commands retain their semantics. Status adds health/reason, recovery attempts,
+watchdog and reset-cause information. SMP command8 reads recovery status and accepts
+write action `clear` with nonzero request_id/expected_boot_id as other mutations.
+Only main changes recovery policy; updates/repair/lifecycle modes suppress escalation.
+CLI `node recovery status|clear`; clear requires `--yes` and never replays old work.
+
+Lifecycle service3 adds command0x000a READ_FAULT_HISTORY with four-byte LE cursor
+(last journal generation, initially0), response60 bytes: found:u8, healthy:u8,
+reserved:u16, overwritten:u32, storage_errors:u32, record:bytes48. If not found the
+record bytes are zero. command0x000b CLEAR_FAULT_HISTORY accepts no arguments and
+returns the same12-byte status header. Clear is a committed logical tombstone;
+no pre-clear record remains visible after restart. CLI `node faults list|clear`;
+clear requires `--yes`. Legacy firmware returns unsupported.
+
+Record48 is explicitly LE: generation:u32, boot_count:u32, session:u32, build:u32,
+time_ms:u32, correlation:u32, detail:u32, code:u16, reset_reason:u8, severity:u8,
+reserved:bytes16. Generation is monotonic and refuses wrap. Timestamps are local
+uptime, not synchronized wall clock. Status/history counters are not transport loss.
+
+
+Reliability command8 read fields are `host_boot_id`, `health`, `reason`,
+`recovery_attempts` (rolling60-second count), `recovery_total`, `reset_cause`
+(Zephyr hwinfo flags), `watchdog`, `failed`. Write clear returns matching
+`request_id`, `accepted:true`; eight same-boot clear admissions are retained.
+Status0 includes the same health fields. Metrics7 additionally exposes
+`reliable_duplicates`, `reliable_gaps`, `event_ack_retries`; duplicates suppressed
+successfully are not failures. Journal `storage_errors` is a per-boot observed-I/O
+counter; `overwritten` counts unavailable journal generations, not unread-PC loss.
+
+Lifecycle command0x000c returns the event counters described in PROTOCOL.md and is
+decoded by generic `service call 3 12`. Reliability nodes advertise lifecycle1.1;
+legacy nodes keep1.0. Reads do not consume fault records or queued wire events.
+After event-send exhaustion, explicit `node recovery clear` triggers renegotiation
+and rearms delivery without discarding retained IDs. No automatic command replay.
+
+
+Startup correction (2026-10-26): health/status responses add `gpio_interrupts`
+(boolean, true only if both optional sideband callbacks are enabled). The wired
+nRF54L15 Port2 has no GPIOTE instance in the pinned SDK; false is expected and uses
+UART interrupt wake plus10ms polling. GPIO input/read configuration failures remain
+fatal; optional interrupt/callback errors log warnings and must not abort startup.

@@ -114,6 +114,48 @@ def call(client, service: int, command: int, data: bytes = b"", request_id=None)
                                   "expected_boot_id": boot_id}, write=True)
 
 
+def recovery_status(client):
+    result = client.request(64, 8, retry=False)
+    if result.get("host_boot_id") != client.host_boot_id:
+        raise SmpError("host restarted; recovery outcome unknown; no command replayed")
+    return result
+
+
+def recovery_clear(client):
+    boot_id = getattr(client, "host_boot_id", None)
+    if type(boot_id) is not int or boot_id == 0:
+        raise SmpError("host_boot_id missing; query status before clearing recovery")
+    request_id = secrets.randbelow((1 << 64) - 1) + 1
+    body = {"action": "clear", "expected_boot_id": boot_id,
+            "request_id": request_id}
+    try:
+        result = client.request(64, 8, body, write=True, retry=False)
+    except SmpTimeout:
+        # Read identity before retrying the exact cached admission. Never reconnect.
+        recovery_status(client)
+        result = client.request(64, 8, body, write=True, retry=False)
+    if result.get("request_id") != request_id or result.get("accepted") is not True:
+        raise SmpError("unexpected recovery admission identity; no command replayed")
+    return result
+
+
+def decode_fault_history(data: bytes, *, clear=False):
+    expected = 12 if clear else 60
+    if len(data) != expected or data[0] not in (0, 1) or data[1] not in (0, 1):
+        raise SmpError("malformed persistent fault history response")
+    found, healthy, reserved, overwritten, storage_errors = struct.unpack("<BBHII", data[:12])
+    if reserved != 0 or (clear and found):
+        raise SmpError("malformed persistent fault history header")
+    result = {"present": bool(found), "healthy": bool(healthy),
+              "overwritten": overwritten, "storage_errors": storage_errors}
+    if found:
+        fields = struct.unpack("<7IHBB16s", data[12:])
+        result["record"] = dict(zip(
+            ("generation", "boot_count", "session", "build", "time_ms", "correlation",
+             "detail", "code", "reset_reason", "severity"), fields[:10]))
+    return result
+
+
 def decode_event(event: dict) -> dict:
     result = dict(event)
     data = event.get("data", b"")
@@ -151,6 +193,14 @@ def decode_event(event: dict) -> dict:
             result["decoded"] = {"state": state, "reset_reason": reason,
                                    "raw_reset_flags": raw_flags, "boot_count": boot_count,
                                    "progress_count": progress_count}
+        elif service == 3 and code in (0x000A, 0x000B):
+            result["decoded"] = decode_fault_history(data, clear=code == 0x000B)
+        elif service == 3 and code == 0x000C:
+            if len(data) != 24:
+                raise SmpError("malformed reliable event status response")
+            result["decoded"] = dict(zip(
+                ("pending", "rejected_admissions", "retries", "exhausted",
+                 "button_dropped", "next_id"), struct.unpack("<6I", data)))
     return result
 
 
@@ -185,6 +235,30 @@ def service_operation(client, args, service, command, data=b""):
     admitted = call(client, service, command, data)
     emit(admitted, args.json)
     return wait_result(client, admitted["operation"], cursor, args.wait_timeout, args.json)
+
+
+def fault_history(client, args):
+    if args.faults_action == "clear":
+        service_operation(client, args, 3, 0x000B)
+        return
+    cursor = 0
+    session = None
+    # Two pages of 32 records, plus the final absent response. Bound concurrent writers.
+    for _ in range(65):
+        event = service_operation(client, args, 3, 0x000A, struct.pack("<I", cursor))
+        if event.get("service") != 3 or event.get("code") != 0x000A:
+            raise SmpError("persistent fault history response service mismatch")
+        if session is not None and event.get("session") != session:
+            raise SmpError("node session changed while reading fault history; no command replayed")
+        session = event.get("session")
+        decoded = decode_fault_history(event.get("data", b""))
+        if not decoded["present"]:
+            return
+        generation = decoded["record"]["generation"]
+        if generation == 0 or (cursor != 0 and not 0 < ((generation - cursor) & 0xFFFFFFFF) < 0x80000000):
+            raise SmpError("persistent fault history cursor did not advance")
+        cursor = generation
+    raise SmpError("persistent fault history read limit reached; run node faults list again")
 
 
 def inspect_nordic_image(image: bytes) -> bytes:
@@ -383,6 +457,12 @@ def parser():
     node.add_parser("reset")
     node.add_parser("status")
     node.add_parser("versions")
+    recovery = node.add_parser("recovery").add_subparsers(dest="recovery_action", required=True)
+    recovery.add_parser("status")
+    recovery.add_parser("clear")
+    faults = node.add_parser("faults").add_subparsers(dest="faults_action", required=True)
+    faults.add_parser("list")
+    faults.add_parser("clear")
     generic = commands.add_parser("service").add_subparsers(dest="service_action", required=True)
     generic_call = generic.add_parser("call")
     generic_call.add_argument("service", type=number)
@@ -442,7 +522,10 @@ def requires_yes(args):
     return (args.command == "service" or
             (args.command == "demo" and args.exercise_controls) or
             (args.command == "stm" and args.stm_action in ("update", "abort", "recover", "recover-abort")) or
-            (args.command == "node" and args.node_action not in ("status", "versions")) or
+            (args.command == "node" and (
+                (args.node_action == "recovery" and args.recovery_action == "clear") or
+                (args.node_action == "faults" and args.faults_action == "clear") or
+                args.node_action not in ("status", "versions", "recovery", "faults"))) or
             (args.command == "diagnostics" and args.diagnostic_action in ("inject", "clear")) or
             (args.command == "host" and args.image_action != "list"))
 
@@ -479,6 +562,13 @@ def execute(client, args):
         else:
             raise SmpError("diagnostic drain limit reached; run diagnostics records again")
     elif args.command == "node":
+        if args.node_action == "recovery":
+            emit(recovery_clear(client) if args.recovery_action == "clear" else recovery_status(client),
+                 args.json)
+            return
+        if args.node_action == "faults":
+            fault_history(client, args)
+            return
         if args.node_action == "reset":
             job = stm.mutate(client, 4, "reset")
             deadline = time.monotonic() + 40

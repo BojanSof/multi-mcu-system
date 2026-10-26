@@ -1,0 +1,4 @@
+/* Application-domain watchdog; older firmware profiles leave it unchanged. */
+&wdt31 {
+    status = "okay";
+};

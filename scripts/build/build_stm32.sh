@@ -14,6 +14,7 @@ Profiles:
   application  Normal release application only
   slots        Slot 0 and Slot 1 applications only
   bootloader   Bootloader only
+  reliability  Signed-slot reliability applications (separate output directories)
 
 The bootloader requires an external generated public-key header. Set
 BOOTLOADER_PUBLIC_KEY_HEADER or pass --public-key-header. This script only builds; it never flashes.
@@ -45,7 +46,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$selection" in
-    all|application|slots|bootloader) ;;
+    all|application|slots|bootloader|reliability) ;;
     *) echo "error: unknown profile: $selection" >&2; exit 2 ;;
 esac
 
@@ -87,6 +88,11 @@ if [ "$selection" = all ] || [ "$selection" = slots ]; then
     }
     build_application_preset release-slot0
     build_application_preset release-slot1
+fi
+
+if [ "$selection" = reliability ]; then
+    build_application_preset release-reliability-slot0
+    build_application_preset release-reliability-slot1
 fi
 
 if [ "$selection" = all ] || [ "$selection" = bootloader ]; then

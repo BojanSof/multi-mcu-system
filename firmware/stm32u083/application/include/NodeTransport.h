@@ -18,4 +18,6 @@ NodeApi_Status NodeTransport_PublishServiceEvent(uint16_t service_id, uint16_t e
                                                  uint32_t operation_id, const uint8_t *data,
                                                  size_t data_length);
 
+void NodeTransport_GetEventStatus(NodeApi_ServiceResponse *response);
+
 #endif

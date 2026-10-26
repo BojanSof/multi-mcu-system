@@ -262,3 +262,35 @@ cmake --build firmware/stm32u083/application/build/debug-early-ready --parallel
 Read [the fault-injection guide](docs/FAULT_INJECTION.md) before enabling a case and use
 [the analyzer tutorials](hardware/LOGIC_ANALYZER.md) for exact CH0/CH1/CH2 connections and expected
 evidence. Python-generated traces are always labeled `SIMULATED`; no analyzer is required.
+
+### Reliability extension (Milestones 13–16)
+
+The independently selectable `reliability` host profile adds the Nordic hardware
+watchdog, bounded automatic node reset recovery and negotiated acknowledged events.
+STM32 reliability slot builds add persistent fault history in dedicated reserved
+flash pages. Existing Phase 1–12 profiles remain available.
+
+```sh
+source ./.env.local
+scripts/build/build_nordic.sh --profile reliability
+scripts/build/build_stm32.sh --profile reliability
+```
+
+Nordic output is `build/nrf54l15-host-reliability/`; STM32 outputs are
+`firmware/stm32u083/application/build/release-reliability-slot0/` and
+`firmware/stm32u083/application/build/release-reliability-slot1/`. Sign each slot
+using the existing external signing key and matching slot target before updating.
+A full-flash standalone application must not enable the fault journal because it
+would overlap its own linker region; the CMake reliability option requires A/B.
+
+```sh
+scripts/mmctl --port "$NRF_PORT" node recovery status
+scripts/mmctl --port "$NRF_PORT" node faults list
+scripts/test/reliability.sh --help
+```
+
+Recovery latch clear and fault-history clear require `--yes`. Automatic recovery
+never enters ROM or repairs firmware without an operator request. See
+[the approved plan](docs/RELIABILITY_PLAN.md),
+[testing instructions](docs/RELIABILITY_TESTING.md) and the milestone reports.
+New hardware acceptance remains separate from software/build verification.

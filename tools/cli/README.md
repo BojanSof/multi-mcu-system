@@ -123,3 +123,20 @@ Interrupted ROM writes may leave a partial loader. `recover-abort` restores BOOT
 low, 8N1 and reset, but cannot undo an erased/programmed loader. Retry a full explicit
 recovery or use SWD; do not assume a working application can boot through a partial
 loader. Neither cable loss nor host restart triggers an automatic mutating reconnect.
+
+Reliability firmware adds read-only recovery health and persistent node history:
+
+```sh
+scripts/mmctl --port "$NRF_PORT" node recovery status
+scripts/mmctl --port "$NRF_PORT" node faults list
+scripts/mmctl --port "$NRF_PORT" --yes node recovery clear
+scripts/mmctl --port "$NRF_PORT" --yes node faults clear
+```
+
+`recovery clear` clears the bounded automatic-reset latch and restarts discovery;
+it does not replay failed operations or select factory recovery. A lost admission
+is retried with the same request ID only after proving the same host boot.
+`faults list` walks bounded, non-destructive journal records and reports overwrite
+and storage-error counts. A changed session or non-advancing cursor stops the read.
+`faults clear` erases persistent history and requires explicit authorization.
+Older firmware may reject these additive commands as unsupported.

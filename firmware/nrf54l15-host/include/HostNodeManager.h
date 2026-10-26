@@ -70,6 +70,9 @@ typedef struct {
     uint64_t latency_sum_ms;
     uint32_t latency_max_ms;
     uint32_t latency_last_ms;
+    uint32_t reliable_duplicates;
+    uint32_t reliable_gaps;
+    uint32_t event_ack_retries;
 } HostNodeManager_Metrics;
 
 HostNodeManager_Metrics HostNodeManager_GetMetrics(void);
@@ -87,11 +90,13 @@ typedef void (*HostNodeManager_RecordCallback)(HostNodeManager_RecordKind kind, 
 /* These functions, like the manager itself, are owned by the application's main thread. */
 void HostNodeManager_SetRecordCallback(HostNodeManager_RecordCallback callback);
 bool HostNodeManager_IsBusy(void);
+bool HostNodeManager_RecoverySuppressed(void);
 int HostNodeManager_CallServiceWithOperation(uint16_t service_id, uint16_t command_id,
                                              const uint8_t *data, size_t data_length,
                                              uint32_t operation_id);
 
 void HostNodeManager_Initialize(void);
+void HostNodeManager_LatchFault(void);
 void HostNodeManager_Process(void);
 HostNodeManager_Status HostNodeManager_GetStatus(void);
 const char *HostNodeManager_StateName(HostLink_State state);

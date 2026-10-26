@@ -15,6 +15,11 @@ void AppBootControl_ConfirmTrialIfRequested(void) {
     if (TAMP->BKP1R != trial_marker) {
         return;
     }
+#if defined(MULTI_MCU_TRIAL_FAILURE_DEMO)
+    /* Explicit development profile: fail self-test before confirmation. */
+    NVIC_SystemReset();
+    return;
+#endif
     TAMP->BKP1R = 0U;
     TAMP->BKP0R = confirm_marker;
     __DSB();

@@ -1,7 +1,7 @@
 # Multi-MCU Lab — Development Plan
 
-**Version:** 3.0 (2026-10-20)
-**Status:** Phases 1–12 software implemented and verified; final extended hardware acceptance pending
+**Version:** 4.0 (2026-10-25)
+**Status:** Phases 1–12 delivered; Milestones 13–16 software implemented and native/build verified; hardware acceptance tracked separately
 **Hardware:** Nordic **nRF54L15-DK** (host), ST **NUCLEO-U083RC** (node), USB leads and jumper/protoboard wires **only**  
 **Firmware language:** C (C11 for project-owned libraries); Python permitted for developer tools and tests  
 **Companion instructions:** [`AGENTS.md`](AGENTS.md)
@@ -523,6 +523,16 @@ For **every phase**, Codex produces a concise plan and contracts first; delegate
 **Parallel:** separate agents for CI, docs/tutorials, Python HIL scripts and firmware size/report review; validation agent checks clean-checkout reproducibility.
 
 **Exit tests:** clean checkout reproduces native tests and available firmware builds; full simulated scenarios pass; available on-board hardware demonstrably runs integrated workflow; demo explains lost IRQ, duplicate operations, recovery and update path; all incomplete hardware checks prominently labeled; library boundaries permit future repository split.
+
+### Milestones 13–16 — Reliability and demonstration extension
+
+The approved continuation is specified in [RELIABILITY_PLAN.md](docs/RELIABILITY_PLAN.md).
+Preserve Phases 1–12 profiles, signing formats, application slot addresses and recovery
+paths. Implement sequentially: (13) host watchdog and bounded automatic recovery;
+(14) persistent node fault history; (15) negotiated reliable events and IRQ wake;
+(16) reproducible failure evidence and guarded interruption acceptance.
+Freeze additive interfaces before delegating and write PHASE_13 through PHASE_16
+reports with software results and hardware acceptance separately identified.
 
 ## 11. Coding standards, agent orchestration and phase gates
 

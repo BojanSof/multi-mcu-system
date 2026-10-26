@@ -89,6 +89,68 @@
         "MULTI_MCU_STM32_LAYOUT_PROFILE": "custom_ab",
         "MULTI_MCU_STM32_SLOT": "1"
       }
+    },
+    {
+      "name": "release-reliability-slot0",
+      "displayName": "NUCLEO-U083RC reliability Slot 0 (release)",
+      "inherits": "release-slot0",
+      "binaryDir": "${sourceDir}/build/release-reliability-slot0",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MULTI_MCU_RELIABILITY": "ON",
+        "MULTI_MCU_ENABLE_DEV_FAULTS": "OFF"
+      }
+    },
+    {
+      "name": "release-reliability-slot1",
+      "displayName": "NUCLEO-U083RC reliability Slot 1 (release)",
+      "inherits": "release-slot1",
+      "binaryDir": "${sourceDir}/build/release-reliability-slot1",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MULTI_MCU_RELIABILITY": "ON",
+        "MULTI_MCU_ENABLE_DEV_FAULTS": "OFF"
+      }
+    },
+    {
+      "name": "debug-reliability-slot0",
+      "displayName": "NUCLEO-U083RC reliability Slot 0 (debug)",
+      "inherits": "release-slot0",
+      "binaryDir": "${sourceDir}/build/debug-reliability-slot0",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MULTI_MCU_RELIABILITY": "ON",
+        "MULTI_MCU_ENABLE_DEV_FAULTS": "ON"
+      }
+    },
+    {
+      "name": "debug-reliability-slot1",
+      "displayName": "NUCLEO-U083RC reliability Slot 1 (debug)",
+      "inherits": "release-slot1",
+      "binaryDir": "${sourceDir}/build/debug-reliability-slot1",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MULTI_MCU_RELIABILITY": "ON",
+        "MULTI_MCU_ENABLE_DEV_FAULTS": "ON"
+      }
+    },
+    {
+      "name": "debug-trial-failure-slot0",
+      "displayName": "Development only: non-confirming signed trial Slot 0",
+      "inherits": "debug-reliability-slot0",
+      "binaryDir": "${sourceDir}/build/debug-trial-failure-slot0",
+      "cacheVariables": {
+        "MULTI_MCU_TRIAL_FAILURE_DEMO": "ON"
+      }
+    },
+    {
+      "name": "debug-trial-failure-slot1",
+      "displayName": "Development only: non-confirming signed trial Slot 1",
+      "inherits": "debug-reliability-slot1",
+      "binaryDir": "${sourceDir}/build/debug-trial-failure-slot1",
+      "cacheVariables": {
+        "MULTI_MCU_TRIAL_FAILURE_DEMO": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -119,6 +181,30 @@
     {
       "name": "release-slot1",
       "configurePreset": "release-slot1"
+    },
+    {
+      "name": "release-reliability-slot0",
+      "configurePreset": "release-reliability-slot0"
+    },
+    {
+      "name": "release-reliability-slot1",
+      "configurePreset": "release-reliability-slot1"
+    },
+    {
+      "name": "debug-reliability-slot0",
+      "configurePreset": "debug-reliability-slot0"
+    },
+    {
+      "name": "debug-reliability-slot1",
+      "configurePreset": "debug-reliability-slot1"
+    },
+    {
+      "name": "debug-trial-failure-slot0",
+      "configurePreset": "debug-trial-failure-slot0"
+    },
+    {
+      "name": "debug-trial-failure-slot1",
+      "configurePreset": "debug-trial-failure-slot1"
     }
   ]
 }

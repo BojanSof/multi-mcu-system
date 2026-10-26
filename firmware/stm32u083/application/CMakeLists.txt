@@ -10,6 +10,10 @@ project(multi_mcu_stm32_application VERSION 0.6.0 LANGUAGES C ASM)
 set(MULTI_MCU_STM32_LAYOUT_PROFILE "rom_bringup" CACHE STRING
     "STM32 link profile (rom_bringup or custom_ab)")
 set_property(CACHE MULTI_MCU_STM32_LAYOUT_PROFILE PROPERTY STRINGS rom_bringup custom_ab)
+option(MULTI_MCU_RELIABILITY "Enable persistent node faults and reliable event delivery" OFF)
+if(MULTI_MCU_RELIABILITY AND NOT MULTI_MCU_STM32_LAYOUT_PROFILE STREQUAL "custom_ab")
+    message(FATAL_ERROR "MULTI_MCU_RELIABILITY requires custom_ab to reserve fault journal flash")
+endif()
 set(MULTI_MCU_STM32_SLOT "" CACHE STRING "Custom A/B slot number (0 or 1)")
 if(NOT MULTI_MCU_STM32_LAYOUT_PROFILE MATCHES "^(rom_bringup|custom_ab)$")
     message(FATAL_ERROR "Unknown MULTI_MCU_STM32_LAYOUT_PROFILE")
@@ -28,6 +32,12 @@ else()
 endif()
 option(MULTI_MCU_ENABLE_DEV_FAULTS "Enable development-only runtime fault injection"
        ${MULTI_MCU_DEV_FAULTS_DEFAULT})
+option(MULTI_MCU_TRIAL_FAILURE_DEMO
+       "Development-only signed trial that resets instead of confirming" OFF)
+if(MULTI_MCU_TRIAL_FAILURE_DEMO AND
+   (NOT MULTI_MCU_ENABLE_DEV_FAULTS OR NOT MULTI_MCU_STM32_LAYOUT_PROFILE STREQUAL "custom_ab"))
+    message(FATAL_ERROR "Trial failure demo requires Debug faults and custom_ab layout")
+endif()
 option(MULTI_MCU_EARLY_READY_BOOT_DEMO
        "Intentionally assert READY before UART init (development analyzer lesson)" OFF)
 option(MULTI_MCU_INCOMPATIBLE_SENSOR_DEMO
@@ -87,6 +97,7 @@ add_executable(multi_mcu_stm32_application
     src/main.c
     src/AppRtos.c
     src/AppDiagnostics.c
+    src/AppFaultHistory.c
     src/AppLifecycle.c
     src/AppServices.c
     src/NodeTransport.c
@@ -99,6 +110,15 @@ target_compile_definitions(multi_mcu_stm32_application PRIVATE
     MULTI_MCU_FIRMWARE_VERSION="${PROJECT_VERSION}")
 if(MULTI_MCU_ENABLE_DEV_FAULTS)
     target_compile_definitions(multi_mcu_stm32_application PRIVATE MULTI_MCU_DEV_FAULTS=1)
+endif()
+if(MULTI_MCU_RELIABILITY)
+    target_compile_definitions(multi_mcu_stm32_application PRIVATE MULTI_MCU_RELIABILITY=1)
+    # stm32-cmake's FLASH target omits U0's extended erase implementation.
+    target_sources(multi_mcu_stm32_application PRIVATE
+        "${STM32_HAL_U0_PATH}/Src/stm32u0xx_hal_flash_ex.c")
+endif()
+if(MULTI_MCU_TRIAL_FAILURE_DEMO)
+    target_compile_definitions(multi_mcu_stm32_application PRIVATE MULTI_MCU_TRIAL_FAILURE_DEMO=1)
 endif()
 if(MULTI_MCU_EARLY_READY_BOOT_DEMO)
     target_compile_definitions(multi_mcu_stm32_application PRIVATE

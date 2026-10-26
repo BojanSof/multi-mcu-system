@@ -94,3 +94,36 @@ The canonical constants and APIs are in `libraries/protocol/include/protocol/` a
 `libraries/node-api/include/node_api/NodeCommands.h`. Portable tests cover the golden frame,
 maximum length, partial streams, deterministic varied-length round trips, malformed COBS, invalid
 fields, CRC corruption, overrun dropping, and resynchronization.
+
+
+## Negotiated reliable events (Milestone 15)
+
+Wire-major v1 and all legacy messages remain unchanged. Capability bit5 advertises
+reliable events. A capable host sends ENABLE_RELIABLE_EVENTS0x0006 after capabilities,
+with normal session prefix and no tail. Its response prefix has next_event_id:u32:
+first queued ID or next allocator value. Enable is idempotent for that session and
+does not clear outstanding events. Legacy peers keep SERVICE_EVENT0x8000.
+
+RELIABLE_EVENT0x8001 uses kind EVENT, sequence0, normal prefix, event_id:u32,
+then the legacy service/event/operation header and data. IDs are allocated contiguously
+only on queue admission; capacity16. EVENT_ACK0x0007 uses REQUEST, sequence0,
+normal prefix plus admitted event_id:u32 and has no response. ACK is cumulative,
+validated against actually transmitted IDs and current session. Retry is bounded;
+unacknowledged entries remain pending/IRQ-held on exhaustion, with explicit counters.
+Node reset clears volatile events. Host acknowledges only after local history admission,
+deduplicates retransmissions and never interprets ACK as PC consumption. Periodic
+fallback remains authoritative if an IRQ edge is missed.
+
+
+Reconnect semantics: HELLO pauses queued event delivery until negotiation finishes.
+ENABLE after HELLO rearms an exhausted head without changing IDs; duplicate ENABLE
+replies do not reset its retry budget. LIST_SERVICES without ENABLE selects legacy
+format and drains retained entries once with legacy delivery semantics. A host
+retains its receive cursor across same-session manager rediscovery within one host
+boot, so lost ACKs do not cause duplicate history publication. A changed node session
+starts a new cursor; this is not durable exactly-once delivery across power loss.
+
+Lifecycle service command0x000c returns24 bytes, six LE u32 values: pending,
+rejected_admissions, retries, exhausted, button_dropped, next_id. Rejections include
+producer backpressure retries and are not synonymous with lost events. Terminal
+actuator events remain pending in their producer until queue admission succeeds.

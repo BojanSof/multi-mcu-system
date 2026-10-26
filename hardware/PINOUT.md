@@ -81,3 +81,14 @@ and Phase 9 profiles do not initialize these supervision outputs.
 - https://docs.nordicsemi.com/r/bundle/errata_nrf54l15_rev1/page/err/nrf54l15/rev1/latest/anomaly_l15_100.html
 - https://www.st.com/resource/en/user_manual/um3256-stm32-nucleo64-boards-mb1932-stmicroelectronics.pdf
 - https://www.st.com/resource/en/schematic_pack/mb1932-u083rc-b01-schematic.pdf
+
+
+### Reliability profile: sideband wake support
+
+The pinned NCS/Zephyr nRF54L15 gpio2 device has no `gpiote-instance`. Its driver
+returns `-ENOTSUP` for interrupt setup on READY P2.06 and IRQ P2.08. These signals
+remain valid GPIO inputs; the node can hold IRQ_N low while events await ACK.
+Host UART RX interrupts wake the owner, with10ms READY/UART polling fallback.
+Optional GPIO interrupt failures are warnings, never fatal startup errors. Runtime
+`gpio_interrupts:false` explicitly reports this capability limit. Do not assign a
+GPIOTE instance to Port2 or change the verified wiring without hardware validation.
