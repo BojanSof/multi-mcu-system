@@ -1,163 +1,37 @@
-# nRF54L15 host firmware
+# nRF54L15 host
 
-This independent Zephyr application contains the Phase 5 host link for the
-nRF54L15-DK application core. It retains the onboard LED/button bring-up and
-the independent debug console on `uart20`. A separate interrupt-driven
-`uart21` transport uses fixed 1024-byte RX/TX rings and feeds the portable
-COBS/CRC decoder and bounded discovery state machine. After management
-discovery, the same host image enumerates the node's bounded service registry;
-it does not assume a particular node personality.
-
-The board overlay assigns host TX P1.11, host RX P1.12, active-low node IRQ
-P2.08 with a pull-up, active-high node READY P2.06 with a pull-down, and the
-inactive-low analyzer output P2.10. These are SoC GPIO names; consult the
-authoritative `hardware/PINOUT.md` for physical header positions and the
-electrical checklist. Do not connect either board until the nRF DK VDDIO is
-physically verified at 3.3 V. Never connect the boards' power rails.
-
-The J-Link console retains UART20 RTS/CTS on P1.06/P1.07 so MCUmgr can receive data from the PC.
-READY/IRQ use optional trace pins instead; trace and these sidebands are mutually exclusive.
-
-From an initialized workspace using the SDK version pinned by the repository
-manifest:
+Independent Zephyr/NCS application for node discovery, bounded service requests,
+async events, supervision, SMP operator control and firmware-update orchestration.
+Use the pinned SDK/toolchain from [setup](../../docs/SETUP.md). The complete build
+and flash commands run from the repository root:
 
 ```sh
-west build -b nrf54l15dk/nrf54l15/cpuapp firmware/nrf54l15-host \
-  --build-dir build/nrf54l15-host
+source ./.env.local
+scripts/build/build_nordic.sh --profile reliability
+.venv/bin/west flash -d build/nrf54l15-host-reliability
+scripts/mmctl device list
 ```
 
-Inspect the image without changing the board:
+The reliability profile includes MCUboot, serial MCUmgr, the operator API, signed
+STM updates, explicit factory-ROM repair, metrics and a 30-second host watchdog.
+Historical build interfaces remain available unchanged. `default` is a standalone
+bring-up/demo host, not the full operator configuration. Keep earlier installations
+and trust roots intact when selecting a different build.
 
-```sh
-west build -d build/nrf54l15-host -t rom_report
-west build -d build/nrf54l15-host -t ram_report
-```
+J-Link VCOM is reserved for SMP; application logs use RTT. The inter-MCU UART is
+115200 8N1, changed exclusively to 8E1 for ROM repair. One main owner serializes
+runtime, reset/update and recovery operations; workqueue handlers use bounded
+mailboxes/snapshots. Main and system-workqueue progress must both advance to feed
+the watchdog, independently of whether the node is online.
 
-Flashing is a separate, explicit hardware step. With exactly one DK attached
-and its debug probe visible, run `west flash -d build/nrf54l15-host`. Expected
-standalone evidence is a 500 ms LED toggle, a log count increment for each
-onboard button press, and `discovering` state with no application-UART traffic while READY is low.
+READY/IRQ are on Port 2, which has no GPIOTE instance in this SDK. GPIO reads and
+level-held IRQ remain valid; UART RX wake plus a 10 ms polling fallback provide
+processing. Unsupported optional GPIO interrupts produce warnings, not fatal startup
+failure. `gpio_interrupts:false` is expected; zero `host_boot_id` indicates startup
+has not completed. No alternate GPIOTE mapping or rewiring is assumed.
 
-## Phase 5 controls
-
-With both boards online, a short Nordic button press starts the virtual-I/O demo. Hold for 1.5-5
-seconds to cycle development fault injection, 5-8 seconds to toggle maintenance, or at least 8
-seconds to toggle software-only shutdown. Maintenance and shutdown leave management communication
-available and do not control physical power. Three unexpected node reboots within 30 seconds latch
-the host fault; restart the Nordic host deliberately to clear it. Physical remote STM reset remains
-disabled because RESET is not part of the approved wiring.
-With a
-safely wired compatible node, the log progresses through `discovering`,
-`identity`, `capabilities`, `services`, and `online`, then sends a heartbeat
-every two seconds. While online, it requests a deterministic virtual-sensor
-sample every five seconds. The DK button starts a two-second virtual-actuator
-operation when that optional service was enumerated; on personality A, where
-the actuator is absent, the button requests an additional sensor sample.
-Sequence-zero service events report the STM32 button and actuator progress or
-completion on the DK debug console. Transport traffic is binary only; logs
-remain on that separate console.
-
-## Development fault controls
-
-When the node advertises diagnostics service `0x0002`, the host requests and
-logs its injection mask and structured counters after discovery. UART receive
-processing always drains the ring on every main-loop pass; `IRQ_N` is logged as
-an advisory wakeup/observation signal and is never required to receive an
-event. This is what allows the intentionally short-IRQ lesson to remain
-recoverable.
-
-The Nordic button preserves the virtual-I/O demonstration and also provides a
-development-only fault selector:
-
-- press for less than 1.5 seconds: run the Phase 3 sensor/actuator action;
-- press for at least 1.5 seconds: advance `OFF -> 1 -> ... -> 8 -> OFF`.
-
-Each long press first sends `DISABLE_ALL`, then enables only the selected ID.
-The console prints the selected ID and the returned status mask. IDs are
-`EARLY_READY=1`, `SHORT_IRQ=2`, `DELAY_RESPONSE=3`, `DROP_ACCEPTANCE=4`,
-`CORRUPT_UART=5`, `TRUNCATE_UART=6`, `EARLY_VIRTUAL_OUTPUT=7`, and
-`TASK_STALL=8`. All node injections remain disabled after a node reboot.
-
-Corrupt, truncated, and delayed traffic is generated by the node's explicit
-development adapter. The host does not add a second hidden corruption layer:
-it records decoder failures and timeouts in its bounded diagnostics ring and
-keeps polling so recovery behavior is observable. A dropped actuator
-acceptance is retried with the exact original frame sequence, operation ID,
-and payload, allowing the node to return its cached acceptance without a
-second execution.
-
-## Phase 6 firmware update profile
-
-The opt-in Phase 6 sysbuild profile adds MCUboot and MCUmgr SMP over the Nordic VCOM while retaining
-the normal host application as an independent build. It uses equal 696 KiB primary/secondary RRAM
-slots and produces `dfu_application.zip` plus `zephyr.signed.bin`. The NCS default signing key is
-development-only and is not production security. Build, initial-flash, upload, confirmation, and
-rollback commands are in [the firmware update guide](../../docs/FIRMWARE_UPDATES.md).
-
-## Phase 7 STM32 recovery client profile
-
-The Phase 7 profile is opt-in and does not replace the normal host application. It uses the same
-P1.11/P1.12 node UART to query the STM custom bootloader. Build the query-only diagnostic image
-from the repository root:
-
-```sh
-.venv/bin/west build -p always --no-sysbuild \
-  -b nrf54l15dk/nrf54l15/cpuapp firmware/nrf54l15-host \
-  --build-dir build/nrf54l15-host-phase7-query -- \
-  -DMULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO=ON
-```
-
-To perform a development update, embed a complete signed, slot-specific STM image:
-
-```sh
-.venv/bin/west build -p always --no-sysbuild \
-  -b nrf54l15dk/nrf54l15/cpuapp firmware/nrf54l15-host \
-  --build-dir build/nrf54l15-host-phase7-update -- \
-  -DMULTI_MCU_PHASE7_STM_BOOTLOADER_DEMO=ON \
-  -DMULTI_MCU_PHASE7_STM_IMAGE="$PWD/build/stm32u083-slot1/signed-slot1.bin"
-```
-
-The client queries boot state, selects only the inactive slot, checks that the embedded signed
-header targets that slot, erases it, writes bounded 256-byte chunks, finalizes signature checking,
-marks it pending, and verifies the resulting boot state. Discovery repeats every 250 ms for up to
-15 seconds so it overlaps the STM reset window. Update operations allow 5 seconds and at most three
-identical-sequence retries. The client deliberately does not reset the STM32 after a
-successful transfer; reset it explicitly to begin the trial boot. Do not use this profile to send
-an image to a normally running STM application, and never connect the boards without the electrical
-checks in `hardware/PINOUT.md`.
-
-## Phase 9 operator control profile
-
-The opt-in control application uses MCUboot and MCUmgr over the existing J-Link
-VCOM. Select `MULTI_MCU_PHASE9_CONTROL=ON`, append `phase9_control.conf` after
-`phase6_mcumgr.conf`, and reuse the Phase 6 sysbuild configuration and overlay.
-Use the root `scripts/build/build_nordic.sh --profile phase9` wrapper once the
-project environment is loaded. The control and Phase 7 bootloader-demo profiles
-are independently selectable and cannot be enabled together.
-
-SMP group 64 implements the frozen `docs/CONTROL_API.md` contract. Only the main
-thread accesses `HostNodeManager`; SMP handlers admit a single bounded mailbox
-request and read mutex-protected snapshots/history. The last eight admitted
-request IDs are cached for idempotent retry within one host boot. The sixteen
-retained event records are read in pages of four. The CLI must obtain
-`host_boot_id` from status and include it as `expected_boot_id` for every call.
-
-Periodic example calls, button-triggered commands and automatic diagnostics
-draining are disabled in this profile. Node discovery and heartbeat supervision
-continue. Firmware version is `unknown` until a lifecycle versions call succeeds
-in the current node session. Commands 4–6 remain reserved for later phases.
-
-The Phase 9 VCOM is dedicated to SMP: application logs use nonblocking SEGGER RTT
-to prevent UART log characters corrupting management frames. MCUboot may print
-startup text before the application begins. Existing profiles retain UART logs.
-
-Native admission/replay/session/history regressions use SDK boundary doubles.
-When `.ncs-workspace` is available, a second test links its actual zcbor and
-MCUmgr map decoder to verify nested, maximum-size responses and malformed
-requests. Four maximum-size retained records encode into 687 CBOR bytes.
-
-```sh
-cmake -S firmware/nrf54l15-host/tests -B build/host-control-native
-cmake --build build/host-control-native
-ctest --test-dir build/host-control-native --output-on-failure
-```
+[CLI commands](../../docs/CLI.md), [update procedures](../../docs/FIRMWARE_UPDATES.md),
+[testing](../../docs/TESTING.md) and [architecture](../../docs/ARCHITECTURE.md) are
+canonical. Keep the verified [pinout](../../hardware/PINOUT.md), Nordic-first power
+order and open-drain reset restrictions. The host never automatically enters ROM
+or repairs firmware solely because runtime communication failed.

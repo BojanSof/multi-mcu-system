@@ -114,8 +114,8 @@ NOT_RUN_HARDWARE. Fixed core/mailbox/replay buffers reside in static RAM.
 ## Hardware acceptance and limitations
 
 Exact wiring/default-level and root-invoked build/flash/update instructions:
-[PHASE_10_TESTING.md](../PHASE_10_TESTING.md), [PINOUT.md](../../hardware/PINOUT.md),
-[WIRING.md](../../hardware/WIRING.md). Nordic PCA10156 1.0.0 schematic sheets 5/7
+[PHASE_10_TESTING.md](../PHASE_10_TESTING.md), [PINOUT.md](../../../../hardware/PINOUT.md),
+[WIRING.md](../../../../hardware/WIRING.md). Nordic PCA10156 1.0.0 schematic sheets 5/7
 were inspected; ST UM3256 Rev 2 table 11 confirms NRST/BOOT0 and default BOOT0 low.
 The large ST schematic PDF could not be fetched in this environment; no new claim
 about its resistor values is relied upon. Wiring still requires human inspection

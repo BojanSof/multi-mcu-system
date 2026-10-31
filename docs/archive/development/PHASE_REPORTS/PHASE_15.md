@@ -1,31 +1,29 @@
-# Milestone 14 — Persistent node fault journal
+# Milestone 15 — Negotiated acknowledged events and wakeups
 
-Status: software implemented and native/build verified; hardware persistence pending.
+Status: software implemented and native/build verified; actual IRQ delivery pending.
 
 ## Delivered behavior and frozen interface
 
-Two2KiB pages at0x0803D000/0x0803D800 come from the previously reserved region.
-Application slots and two boot-journal pages retain their original bounds. YAML
-schema generates and validates journal addresses. Standalone whole-flash reliability
-configuration is rejected before writing anything.
+Wire-major1 stays unchanged. Capabilitybit5, ENABLE0x0006, ACK0x0007 and event0x8001
+are additive. STM16-entry queue uses stop-and-wait (cumulative window1),250ms retry,
+maximum5 sends before counted exhaustion; pending data and IRQ remain until ACK.
+Admission failures return backpressure; actuator completion stays at its producer
+until admitted, and button loss has a separate counter. Lifecycle0x000c exposes
+pending/rejections/retries/exhaustion/button-loss/next-ID counters.
 
-Portable DiagnosticsJournal uses64-byte records, CRC, monotonic generation and
-commit-last doubleword. Rotation preserves newest committed data; clear commits a
-logical tombstone, not secure physical erasure. Tests cover every doubleword boundary,
-257 partial-erase boundaries, corrupt bytes, rollover and clear aging through rotations.
+Nordic validates session, numbering and bounds, admits to bounded history then ACKs;
+duplicates are not republished. History overwrite does not imply PC consumption.
+GPIO/UART callbacks wake main only, with10ms timer/poll fallback and initial IRQ-level
+check. No measured power-saving claim is made.
 
-Task-owned STM adapter writes boot summaries and coalesced important faults. At most
-8 fault writes per boot, one-second warning spacing, fatal pre-stall breadcrumb;
-no ISR/fatal-handler writes and no automatic storage-failure retry loop. Trial
-confirmation is not blocked on journal storage. Nordic reset cause is exposed without
-adding a second persistent journal.
-
-Lifecycle1.1 adds0x000a read cursor,0x000b clear, preserving old commands and legacy1.0
-profiles. CLI `node faults list|clear` handles48-byte records/60-byte responses with
-session/cursor checks. `overwritten` is missing physical generations, not unread-PC
-loss; storage_errors is perboot observed I/O count. Read does not consume records.
-Native actual lifecycle-dispatch test checks lengths, read cursor, clear deduplication
-and legacy status behavior. Real flash retention/ECC behavior still requires boards.
+Independent review found and fixed three reconnect issues: HELLO now renegotiates
+mode for legacy reconnect; explicit new negotiation rearms exhausted events without
+changing IDs; host preserves its cursor across same-session manager rediscovery.
+Native tests exercise actual STM transport and host manager, lost ACK, no callback,
+TX-full ACK retry, stale session, malformed/gapped events, bounded exhaustion and
+legacy downgrade preserving queued data. New lifecycle replies do not falsely
+increment protocol-error counters. Node reset still discards volatile events;
+this is not durable exactly-once delivery across arbitrary power loss.
 
 ## Verification environment and provenance
 
@@ -103,13 +101,35 @@ stubs and RWX load segment. No project compiler error was ignored.
 
 Local ignored evidence: `build/reliability-validation/{tests,nordic,stm32}.log`.
 No analyzer capture was made. Full hardware commands and criteria are in
-[RELIABILITY_TESTING.md](../RELIABILITY_TESTING.md).
+[RELIABILITY_TESTING.md](../../../RELIABILITY_TESTING.md).
+
+
+## Post-HIL startup correction — 2026-10-26
+
+User reported status with host_boot_id0, state disabled, supervision/stm_update false,
+watchdog false. Inspection confirms READY/IRQ use gpio2, which has no GPIOTE instance
+in the built DTS; pinned gpio_nrfx returns ENOTSUP. Optional callback setup had
+incorrectly aborted main before control initialization. Now required GPIO setup
+remains fatal, while optional IRQ setup logs warnings and uses UART wake/10ms polling.
+Status exposes gpio_interrupts:false on this configuration. No rewiring is required.
+Added actual HostSignals adapter regression for ENOTSUP, callback-allocation failure,
+partial support, initial IRQ assertion and genuine pin/device failures. Updated
+software/build results are recorded in build/reliability-validation/startup-fix-*.log.
+User subsequently confirmed successful startup; see hardware confirmation below.
+
+Startup-fix verification: PASS26 root CTests,2 bootloader CTests,331 Python tests;
+reliability, Phase12 and default Nordic rebuilds PASS. Reliability linker occupancy
+95424 FLASH /39392 RAM; unchanged STM images were not reflashed or rebuilt for
+this Nordic-only correction. User startup confirmation is recorded below; extended fault tests remain pending.
 
 
 ## User hardware confirmation
 
-Source: user-supplied real-board journal output before and after explicit node reset.
-Journal healthy:true, overwritten:0, storage_errors:0. Generations1 and2 survived;
-generation3 records boot_count4/reset_reason2 with new session2027218649, replacing
-previous session3668929806. Warm-reset retention PASS. Power-cycle retention,
-flash interruption and fault-storm wear tests remain NOT_RUN_HARDWARE.
+Source: user-supplied status and quick-demo logs. Reliability capabilities63,
+node online/healthy, five sensor requests and ten-second event watch PASS, including
+actuator progress/completion and four asynchronous watch events. During run:
+protocol errors, retries, timeouts, UART errors, RX/TX overflows all0. Lifetime
+reliable_gaps, reliable_duplicates and event_ack_retries all0. Host history dropped6
+means overwritten retained records, not demonstrated wire loss. UART/poll fallback
+works with gpio_interrupts:false. Deliberate lost ACK/exhaustion/legacy-reconnect
+hardware exercises remain NOT_RUN_HARDWARE.

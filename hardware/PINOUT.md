@@ -1,12 +1,13 @@
 # Current pinout and electrical gate
 
-Software mapping is frozen for NUCLEO-U083RC `MB1932-U083RC-B01` and nRF54L15-DK
-`PCA10156 1.0.0` (date code `2025.30`). On 2026-10-12 the user configured Nordic VDD:IO to
-3.3 V and measured both Nordic VDD:IO and STM VDD at 3.3 V with the boards disconnected. The
-electrical voltage gate is `PASS`. Phase 6 moved READY/IRQ from P1.06/P1.07 to P2.06/P2.08 to
-restore debugger UART hardware flow control for bidirectional MCUmgr.
+The documented mapping is verified for NUCLEO-U083RC `MB1932-U083RC-B01` and nRF54L15-DK
+`PCA10156 1.0.0` (date code `2025.30`). The reference setup used
+Nordic VDD:IO and STM VDD measured at 3.3 V while disconnected. Every new assembly
+must repeat the electrical voltage gate below; a previous measurement does not
+verify another board. P1.06/P1.07 are reserved for debugger UART hardware flow
+control; READY/IRQ use P2.06/P2.08.
 
-## Frozen application signals
+## Application and debug signals
 
 | Signal | nRF54L15-DK | NUCLEO-U083RC | Direction | Safe reset state |
 |---|---|---|---|---|
@@ -19,8 +20,7 @@ restore debugger UART hardware flow control for bidirectional MCUmgr.
 | `GND` | P30 pin 2 | CN10 pin 20 | common reference | connected only after voltage gate |
 
 USART application framing is 115200 baud, 8 data bits, no parity, one stop bit. STM USART2
-PA2/PA3 remains dedicated to ST-LINK VCP logging. The Nordic Zephyr console remains on the DK debug
-transport; no ASCII log bytes use the application UART.
+PA2/PA3 remains dedicated to ST-LINK VCP logging. Nordic logs use RTT and its J-Link VCOM carries SMP; no ASCII log bytes use the application UART.
 
 ## Mandatory voltage gate
 
@@ -34,8 +34,9 @@ transport; no ASCII log bytes use the application UART.
 5. Power both boards off, connect only the GND and application signals listed above, inspect for
    shifted header positions/shorts, then reconnect their separate USB supplies.
 
-Never connect either 5 V or 3.3 V supply rail between boards. Do not connect RESET or BOOT0 in
-Phase 2. Do not change STM option bytes.
+Never connect either 5 V or 3.3 V supply rail between boards. Follow the supervision
+connections below only after the exact-board gate; do not change STM option bytes
+as part of wiring.
 
 ## Source verification
 
@@ -47,20 +48,19 @@ Phase 2. Do not change STM option bytes.
   remains the analyzer debug output.
 - ST UM3256 Rev 2 and the MB1932-U083RC-B01 schematic define PA9/PA10 and PB3/PB4/PB5 on CN10.
 
-References:
-
-## Supervision extension (Phase 10 only)
+## Supervision signals
 
 | Signal | Nordic | STM | Driver |
 |---|---|---|---|
 | NRST | P1.08, physical P1 pin 11 | CN7 pin 14 | open-drain low or released high-Z |
-| BOOT0 | P1.14, physical P1 pin 17 | CN7 pin 7 | low normally; high only for explicit Phase 11 ROM repair; input on Nordic reset |
+| BOOT0 | P1.14, physical P1 pin 17 | CN7 pin 7 | low normally; high only for explicit ROM repair; input on Nordic reset |
 
 Source check: PCA10156 1.0.0 schematic sheets 5/7 show P1.08 connected to SW5
 (button2) directly to ground, so it is compatible with open-drain reset. P1.14
 connects to the LED3 transistor gate, not directly to its LED supply; R27 is a
 1 MOhm gate pull-down. The profile disables button2/led3 software consumers.
-Button2 physically resets STM; LED3 stays off because Phase 10 never asserts BOOT0.
+Button2 physically resets STM. LED3 indicates BOOT0 high during explicit ROM repair
+and stays off in normal operation.
 ST UM3256 Rev 2 table 11 confirms CN7 pins 14/7 and BOOT0 default low.
 
 PCA10156 1.0.0 hardware files identify QFAAC00 (SoC revision 2). Nordic anomaly
@@ -68,9 +68,9 @@ PCA10156 1.0.0 hardware files identify QFAAC00 (SoC revision 2). Nordic anomaly
 this wiring approval to engineering/revision-1 boards or modified assemblies.
 Verify board/SoC marking if different from the recorded kit.
 
-Documentation/source gate is checked; physical wiring and default levels still
-require the human checklist in WIRING.md. No option bytes are changed. Normal
-and Phase 9 profiles do not initialize these supervision outputs.
+Follow the physical wiring/default-level checklist in [WIRING.md](WIRING.md). The
+recommended `reliability` build controls these pins. Do not run an incompatible
+bring-up build that repurposes them while the supervision wires remain connected.
 
 ## Source links
 
@@ -88,7 +88,7 @@ and Phase 9 profiles do not initialize these supervision outputs.
 The pinned NCS/Zephyr nRF54L15 gpio2 device has no `gpiote-instance`. Its driver
 returns `-ENOTSUP` for interrupt setup on READY P2.06 and IRQ P2.08. These signals
 remain valid GPIO inputs; the node can hold IRQ_N low while events await ACK.
-Host UART RX interrupts wake the owner, with10ms READY/UART polling fallback.
+Host UART RX interrupts wake the owner, with 10 ms READY/UART polling fallback.
 Optional GPIO interrupt failures are warnings, never fatal startup errors. Runtime
 `gpio_interrupts:false` explicitly reports this capability limit. Do not assign a
-GPIOTE instance to Port2 or change the verified wiring without hardware validation.
+GPIOTE instance to Port 2 or change the verified wiring without hardware validation.

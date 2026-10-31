@@ -88,6 +88,6 @@ unrelated singleton port. Ambiguous identity stops read-only verification.
 
 The archive contains exactly manifest+four artifacts, no private key. To distribute
 the new Phase12 host rather than an older bundle's host, rebuild/revalidate the v2
-bundle using the Phase12 zephyr.signed.bin first; see [release instructions](FINAL_RELEASE.md).
+bundle using the Phase12 zephyr.signed.bin first; see [release instructions](../../FINAL_RELEASE.md).
 Static stack frames are not call-chain bounds or target high-water measurements.
 `metrics` reports live stack scan availability/free bytes on actual firmware.

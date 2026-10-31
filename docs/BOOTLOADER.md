@@ -1,78 +1,75 @@
-# STM32 custom bootloader
+# STM32 signed A/B bootloader
 
-Phase 7 adds an explicitly selected development bootloader profile. The normal STM32 ROM-bring-up
-profile remains available. Factory ROM USART recovery and SWD remain the last-resort recovery
-paths.
+The custom loader is a separate bare-metal STM32 project. It implements signed
+slot validation, bounded trial boots, confirmation, rollback and UART recovery.
+It does not depend on FreeRTOS or the normal service protocol. For commands, start
+with [installation and updates](FIRMWARE_UPDATES.md).
 
-## Flash and image contract
+## Memory and signatures
 
-`firmware/stm32u083/memory/flash_layout.yaml` is authoritative. Its generated layout is:
+The authoritative source is `firmware/stm32u083/memory/flash_layout.yaml`.
+Generated linker scripts and constants preserve these boundaries:
 
-| Region | Address | Size |
-|---|---:|---:|
+| Region | Address | Capacity |
+|---|---|---:|
 | Bootloader | `0x08000000` | 64 KiB |
 | Slot 0 | `0x08010000` | 88 KiB |
 | Slot 1 | `0x08026000` | 88 KiB |
 | Metadata/reserved | `0x0803C000` | 16 KiB |
 
-Each slot begins with a 512-byte signed `MMFW` v2 header. Application vectors therefore start at
-`0x08010200` or `0x08026200`; the application is linked independently for each address. SHA-256
-authenticates the payload and ECDSA-P256 authenticates canonical header bytes `0..79`. Signatures
-are raw low-S `r || s`; key ID and target slot are signed. CRC32 in the UART protocol only detects
-transfer corruption and is not an authenticity mechanism.
+Each slot begins with a 512-byte signed MMFW v2 header; vectors begin at
+`0x08010200` or `0x08026200`. Each application is linked for its own address.
+The canonical signed header bytes 0–79 contain target, key ID, slot/link address,
+version and payload SHA-256. ECDSA P-256 signatures use raw low-S `r || s`.
+Hash equality alone does not authenticate an image; the signature does.
 
-Metadata uses two separate 2 KiB journal pages. A 64-byte record is committed by programming its
-CRC/complement doubleword last. States are `CONFIRMED`, `PENDING`, `TRIAL`, `INVALID`, and
-`RECOVERY`. The bootloader never erases the confirmed slot through its update protocol. There is
-no anti-rollback version policy in this demonstration.
+Boot metadata uses two separate 2 KiB journal pages. Its 64-byte records commit the
+CRC/complement doubleword last. Dedicated fault-history pages at `0x0803D000` and
+`0x0803D800` are separate from boot selection. States include confirmed, pending,
+trial, invalid and recovery. The update engine never erases the confirmed slot;
+there is no anti-rollback version policy.
 
-## Build and sign
+## Trial confirmation
 
-Run from the repository root after `source ./.env.local`:
+Before a trial jump, the loader writes a slot-specific trial marker to backup
+register `BKP1R`. After its scheduled initialization/self-test, the application
+writes a confirmation marker to `BKP0R` and requests reset. Only the loader commits
+flash boot metadata. Missing, malformed or wrong-slot confirmation leaves the image
+unconfirmed. At most two trial attempts are allowed before falling back to a valid
+confirmed image. With no boot record, the device stays in recovery until an update
+creates one; directly flashing an application ELF does not perform this transition.
+
+The loader opens a two-second recovery-entry window before cryptographic slot
+validation. BootProtocol magic bytes `MB` select recovery; otherwise it validates
+slots and follows the journal. No usable application leads to recovery. UART frame
+parsing survives partial input and resynchronizes after malformed frames.
+
+## UART ownership and verification
+
+The loader uses its own bounded BootProtocol, not the application COBS protocol.
+Stop-and-wait requests include sequence, offset and CRC. Exact retries return a
+cached response; conflicting/stale requests cannot repeat flash transitions.
+Physical final doublewords are padded with `0xFF`, while hashes retain logical
+payload length. Finalize verifies hash, signature, vectors, target and slot bounds.
+Normal update completion includes confirmation and runtime rediscovery.
+
+SHA-256 uses Mbed TLS and P-256 verification uses micro-ecc, both currently software
+implementations. Flash and UART adapters remain target-specific. Open SWD and ROM
+recovery allow replacing the trust root; this is a signed-update demonstration,
+not a production provisioning or protected-boot claim.
+
+## Build, test and recover
+
+See [setup](SETUP.md) for pinned dependencies and
+[firmware installation](FIRMWARE_UPDATES.md) for fresh-board key/build/sign steps.
+The bootloader accepts only an external public-key header, never a private key.
 
 ```sh
-cmake --preset release-slot0 -S firmware/stm32u083/application
-cmake --build firmware/stm32u083/application/build/release-slot0 --parallel
-cmake --preset release-slot1 -S firmware/stm32u083/application
-cmake --build firmware/stm32u083/application/build/release-slot1 --parallel
+cmake -S firmware/stm32u083/bootloader -B build/stm32-bootloader-native -G Ninja \
+  -DBOOTLOADER_BUILD_NATIVE_TESTS=ON
+cmake --build build/stm32-bootloader-native
+ctest --test-dir build/stm32-bootloader-native --output-on-failure
 ```
 
-Create a local P-256 key only once. Never commit it:
-
-```sh
-mkdir -p keys
-.venv/bin/python tools/firmware/generate_key.py \
-  keys/stm32-dev-private.pem keys/stm32-dev-public.pem
-.venv/bin/python tools/firmware/public_key_header.py \
-  keys/stm32-dev-public.pem keys/stm32-dev-public.h --key-id 1
-```
-
-Package and independently verify a slot image:
-
-```sh
-.venv/bin/python tools/firmware/sign.py \
-  --private-key keys/stm32-dev-private.pem --slot 0 --version 0.7.0 \
-  --build-id 0x700 --wire 1.0 --management 1.0 \
-  firmware/stm32u083/application/build/release-slot0/multi_mcu_stm32_application.bin \
-  build/stm32-slot0.mmfw
-.venv/bin/python tools/firmware/verify_signed.py \
-  --public-key keys/stm32-dev-public.pem build/stm32-slot0.mmfw
-```
-
-The bootloader build and public-key conversion commands are defined in its README/presets. A
-bootloader must be rebuilt when its trusted public key changes.
-
-## Security boundary
-
-This is a signed-update engineering demonstration, not production secure boot. SWD remains open,
-flash/readout protections are not provisioned, public-key replacement is not protected, and there
-is no production key ceremony or anti-rollback counter. Do not enable RDP Level 2 or irreversible
-option-byte protection for this project.
-
-## Hardware gate
-
-Before claiming direct A/B completion, test on the board: boot and interrupt operation from both
-slot link addresses; valid pending image confirmation; trial-crash rollback; wrong-slot, modified
-hash, and modified-signature rejection; reset during erase/program; corrupt metadata recovery; and
-factory ROM/SWD rescue. Bound destructive flash tests to protect endurance. Exact commands and
-observed status belong in `docs/PHASE_REPORTS/PHASE_7.md`.
+Hardware interruption and deliberately failing-trial procedures are in
+[testing](TESTING.md). Keep SWD/factory-ROM rescue verified before destructive work.

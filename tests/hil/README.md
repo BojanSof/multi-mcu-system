@@ -1,30 +1,20 @@
-# Optional two-board HIL observer
+# Hardware-in-the-loop checks
 
-This harness only observes existing 115200-baud serial logs. It never builds, flashes, resets, or
-changes option bytes. Hardware execution is opt-in and requires two explicit, distinct device paths
-plus confirmation that the wiring and Nordic 3.3 V VDD:IO were checked.
-
-From the repository root, a safe no-op status check is:
+The recommended operator harness is `scripts/test/reliability.sh`, run from the
+repository root. It opens no devices by default and reports `NOT_RUN_HARDWARE`:
 
 ```sh
-python tests/hil/run_hil.py --scenario phase5_smoke
+scripts/test/reliability.sh
+scripts/test/reliability.sh --run-hardware --electrical-verified --port "$NRF_PORT" \
+  --report build/reliability-checks.json
 ```
 
-A deterministic simulated check (not a hardware capture) is:
+See [testing](../../docs/TESTING.md) for named suites, guard prerequisites and manual
+watchdog/power/interruption evidence. Passing read checks does not convert missing
+manual tests to PASS. A short demo is not extended runtime acceptance.
 
-```sh
-python tests/hil/run_hil.py --scenario phase5_smoke \
-  --fixture-host tests/hil/fixtures/phase5_host.log \
-  --fixture-node tests/hil/fixtures/phase5_node.log
-```
-
-After independently building, flashing, wiring and starting both boards:
-
-```sh
-python tests/hil/run_hil.py --scenario phase5_smoke --run-hardware \
-  --electrical-verified --host-port /dev/ttyACM2 --node-port /dev/ttyACM0
-```
-
-Device names are examples; identify them by stable `/dev/serial/by-id/` paths when possible. The
-single JSON result uses the project statuses and identifies execution as hardware, simulated, or
-not run. Raw logs are intentionally not persisted by this runner.
+The legacy `run_hil.py` observer remains available for existing serial-log scenarios;
+use its `--help` and `matrix.json` for identifiers. It observes logs only and never
+builds, flashes, resets or changes options. Current Nordic logs use RTT rather than
+its SMP VCOM, so do not point a text observer at that management port. Fixture-based
+unit tests and generated traces are simulated and cannot establish hardware results.

@@ -27,7 +27,7 @@ the handler/context and descriptor by value. Descriptor lookup pointers remain o
 registry. A handler must bound response data to 64 bytes and return a `NodeApi_Status`.
 
 `NodeApi_DispatchRequest` validates pointers and sizes, locates the service and calls its handler.
-It caches the most recent request bytes and response. An exact duplicate of service ID, command ID,
+It caches the most recent successful request bytes and response; transient errors are not cached. An exact duplicate of service ID, command ID,
 operation ID and request data returns the cached response without calling the handler again. Reusing
 an operation ID with different request data is not an exact duplicate, so the registry calls the
 service handler; services that require stronger operation-ID conflict detection must implement it.
@@ -57,6 +57,32 @@ Actuator duration is 100–60,000 ms. Completed operation IDs are retained in an
 history so a retry does not execute an accepted operation twice. All prerequisite/output fields are
 software model state, never electrical state.
 
+## Reliable event queue
+
+`NodeEvents_Initialize` creates a caller-owned 16-entry queue. `NodeEvents_Push`
+copies bounded service data and allocates a contiguous event ID only on successful
+admission. Full queues and exhausted numbering return backpressure. `NodeEvents_Due`
+exposes the stop-and-wait head on initial send or after 250 ms; `NodeEvents_Sent`
+counts attempted sends. Five sends exhaust the budget without discarding pending data.
+`NodeEvents_Acknowledge` removes only an actually sent matching head. Session checks
+belong to the adapter. `NodeEvents_Rearm` resets the delivery budget on explicit
+renegotiation while preserving IDs and records. The caller serializes all operations.
+
+## Persistent diagnostic journal
+
+`DiagnosticsJournal_Initialize` scans two dedicated 2 KiB pages through caller
+read/program-doubleword/erase callbacks. Its 64-byte on-flash records use a CRC
+and commit-last doubleword. Append assigns monotonically increasing generation,
+refuses wrap and rotates without erasing the page holding the latest committed record.
+`ReadAfter` returns the first visible generation after a cursor without consumption;
+`Clear` commits a logical tombstone, not secure physical erasure. The stable wire
+record encoder emits 48 little-endian bytes with zeroed reserved fields.
+
+Flash callback ownership, page allocation, scheduling and wear limits belong to
+the target adapter. `healthy` describes the latest scan/I/O result; `storage_errors`
+is an observed per-initialization I/O counter and `overwritten` counts unavailable
+physical generations. It is not a persistent count of unread faults lost at the PC.
+
 ## Firmware image
 
 `FirmwareImage_ParseManifest` (MMFW v1) and `FirmwareImage_ParseSignedHeader` (MMFW v2) validate
@@ -80,6 +106,16 @@ expected sequence and may replay an exact cached response after a lost acknowled
 repeat the flash mutation. Slot flags select Slot 0/1. `WRITE_CHUNK` offsets are relative to the
 slot base. `FINALIZE` verifies the complete signed image before `SET_PENDING` can change boot state.
 The confirmed slot is never an erase target through this protocol.
+
+## Factory-ROM transport
+
+`Stm32RomBoot::Stm32RomBoot` provides bounded AN3155 transactions through whole-buffer
+send/read callbacks. The adapter owns fresh reset/BOOT0 entry, UART 8E1 and restoration.
+Only device 0x489 and explicit custom-bootloader pages 0–31 are supported. Readback
+checks cover programmed padding; failures poison the connection and require a fresh
+reset/connect/erase, rather than blind mutation replay. The caller owns stream
+continuity, complete-image validation and admission deduplication. See the
+[package contract](../libraries/stm32-rom-boot/README.md).
 
 ## Ownership and concurrency
 

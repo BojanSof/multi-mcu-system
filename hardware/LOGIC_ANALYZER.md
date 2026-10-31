@@ -1,4 +1,4 @@
-# Logic-analyzer connections and Phase 4 exercises
+# Logic-analyzer connections and fault exercises
 
 A logic analyzer is optional. Connect its ground to the common board ground and use:
 
@@ -21,10 +21,10 @@ Use at least 1 MS/s (4 MS/s or higher preferred), digital thresholds compatible 
 connect analyzer power to either board. For exercises using `NODE_DEBUG`, move only CH2 from PB4
 to PB3; do not change the MCU wiring.
 
-Development injection is compiled only into STM Debug builds. On Nordic, a short button press runs
-the normal service demo. A press of at least 1.5 seconds advances `OFF -> injection 1 .. 8 -> OFF`;
-wait for the diagnostic status log after every long press. Resetting STM clears all runtime
-injections. Injection 1 (early READY) requires its separate analyzer-only STM build option because
+Development injection is compiled only into compatible STM Debug builds. For the
+USB operator system select a signed Debug slot and use `scripts/mmctl diagnostics`
+as described in [fault injection](../docs/FAULT_INJECTION.md). Resetting STM clears
+all runtime injections. Injection 1 (early READY) requires its separate analyzer-only STM build option because
 runtime state deliberately does not persist across reset.
 
 ## Tutorial A — missed IRQ edge
@@ -35,13 +35,13 @@ Injection: `SHORT_IRQ` (2). Probe CH0 host TX, CH1 node TX, and CH2 PB4 `IRQ_N`.
   active-low pulse. An edge-only host design could miss it. The Nordic log must still show the
   event because the implemented host polls and drains UART independently of IRQ.
 - Correct behavior: with injection disabled, IRQ remains low across the queued event interval and
-  is released on a later transport pass. UART event framing, not the edge alone, is authoritative.
+  is released after acknowledgment in reliable-event mode. UART event framing, not the edge alone, is authoritative.
 - Expected markers: CH2 falls before the first event byte on CH1. Bug mode rises almost
-  immediately; fixed mode remains low for approximately one 20 ms node task period.
+  immediately; reliable mode remains low while an event is pending acknowledgment; legacy delivery may release it on a later transport pass.
 - Regression: `fault_runner.py scenario lost_irq --mode buggy|fixed` emits deterministic
   `SIMULATED` CSV/VCD evidence; host firmware always drains UART in either case.
-- HIL: enable ID 2, press/release the STM button once, verify the short CH2 pulse and the Nordic
-  button-event log. Disable/reset and repeat to observe the held level.
+- HIL: enable ID 2, press/release the STM button once, verify the short CH2 pulse and the CLI
+  button event. Disable/reset and repeat to observe the held level.
 
 ## Tutorial B — dropped acceptance and duplicate operation
 
@@ -58,7 +58,7 @@ Injection: `DROP_ACCEPTANCE` (4). Probe CH0 host TX, CH1 node TX, and CH2 PB3 `N
 - Regression: the portable virtual-I/O test asserts that duplicate START does not increment the
   execution or transition counters. The simulated `duplicate_operation` trace contrasts the
   intentionally buggy double execution with the fixed cache.
-- HIL: enable ID 4, short-press Nordic once, and verify a timeout/retry diagnostic, exactly one
+- HIL: enable ID 4, start one actuator through the CLI, and verify a timeout/retry diagnostic, exactly one
   execution number and one completion sequence.
 
 ## Tutorial C — virtual output ordering
@@ -87,8 +87,8 @@ The terms prerequisite/output describe software state only, never electrical pow
   byte. Expect CRC/framing rejection, a counter increment and resynchronization at `0x00`.
 - `TRUNCATE_UART` (6): one clean enable response is followed by half of one encoded frame. Expect a
   partial stream, timeout/retry and recovery at the next delimiter.
-- `TASK_STALL` (8): the node communication task pauses for a bounded 1.5 seconds. Phase 4 observes
-  timeouts only; watchdog reset/escalation belongs to Phase 5.
+- `TASK_STALL` (8): the node communication task pauses for six seconds, long enough to
+  prevent progress-based IWDG refresh. Expect a watchdog reset, new session and rediscovery.
 
 The generator at `tools/fault-runner/fault_runner.py` can create analyzer-like CSV/VCD for all
 transport exercises when no analyzer is available. These outputs are illustrative simulations and

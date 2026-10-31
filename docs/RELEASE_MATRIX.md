@@ -12,10 +12,10 @@ image or boot-protocol negotiation.
 | Application wire framing | major 1 | Unknown major is rejected before state mutation |
 | Node API C API | 1.0 | Source API |
 | Node management | 1.0 | Major must match; offered minor must be at least required minor |
-| Lifecycle service | 1.0 | Same major/minor rule |
+| Lifecycle service | 1.0; reliability node 1.1 | Host requires 1.0; new history/event commands require 1.1 |
 | Diagnostics API/service | 1.0 | Same major/minor rule |
 | Virtual-I/O example | 1.0 | Optional example service; not part of the generic protocol |
-| Firmware image | MMFW v1.0 | Integrity/package format used by host tooling and Phase 6 paths |
+| Firmware image | MMFW v1.0 | Legacy integrity-only package format; not the signed A/B format |
 | Signed STM image | MMFW v2.0 | Exact supported format; target, slot, key and link address are checked |
 | STM boot protocol | 1.0 | Exact major/minor decoder match in the current implementation |
 | STM flash layout | 64/88/88/16 KiB | Change-controlled; slot vectors are `0x08010200`/`0x08026200` |
@@ -43,8 +43,8 @@ licenses.
 - Optional services are evaluated independently. An incompatible service is unavailable without
   taking other compatible services or the link offline.
 - Service compatibility requires equal major and `offered_minor >= required_minor`.
-- A node reboot creates a new session; pending host work is discarded rather than replayed into the
-  new session.
+- A node reboot/READY transition restarts discovery; pending host work is discarded rather than
+  replayed. Session IDs and duplicate caches are not durable global identities across power loss.
 - Signed STM images must match the expected STM target/hardware IDs, Slot 0 or Slot 1, corresponding
   vector/link address, maximum size, signature algorithm, key ID, and required protocol versions.
 - There is no anti-rollback version policy. A cryptographically valid older image is not rejected
@@ -58,5 +58,4 @@ production secure-boot claim.
 
 Use these result labels in reports: `PASS`, `FAIL`, `PASS_BUILD`, `PASS_HARDWARE_USER`,
 `BLOCKED_TOOL`, `BLOCKED_ELECTRICAL`, and `NOT_RUN_HARDWARE`. A native test, simulated trace or
-successful build is not hardware evidence. See each `docs/PHASE_REPORTS/PHASE_N.md` for observed
-results and outstanding checks.
+successful build is not hardware evidence. See [VALIDATION.md](VALIDATION.md) for current observed results and outstanding checks.

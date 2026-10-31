@@ -1,86 +1,73 @@
-# Reproduce and package the final reference system
+# Reproducible builds and release packaging
 
-Software coverage is not completed physical acceptance. See PHASE_REPORTS/PHASE_12.md
-for exact evidence and remaining HIL; no production secure-boot claim is made.
+Start with [setup](SETUP.md), then [firmware installation](FIRMWARE_UPDATES.md).
+Pinned SDK/toolchain/dependency versions are recorded in [the lock](../deps/LOCK.md).
+Use [testing](TESTING.md) and [validation status](VALIDATION.md) to distinguish
+implemented software from measured hardware behavior.
 
-## Clean checkout
+## Build and verify
 
-```sh
-git clone --recurse-submodules YOUR_REPOSITORY_URL multi-mcu-system
-cd multi-mcu-system
-scripts/bootstrap-venv.sh
-.venv/bin/python scripts/doctor.py
-scripts/test/run_native.sh
-```
-
-No SDK is required for portable/native tests; real-CBOR integration tests are
-enabled only when the pinned local NCS workspace exists. Bootloader native crypto
-tests require the pinned submodules. No global pip, private key or captured logs
-belong in the checkout. The placeholder repository URL must be your actual remote.
-
-For cross builds follow README's ignored `.env.local` and `.ncs-workspace` setup;
-install the audited NCS3.4.1/toolchains and matching SDK Python requirements. Keep
-CMSIS/HAL/FreeRTOS at deps/LOCK.md pins. Supply the existing external public-key
-header; never generate replacement keys just to complete a build.
+All commands run from the project root. Keep SDKs, keys and build artifacts ignored.
+Supply the public-key header matching the installed STM bootloader, never its
+private key, to the build:
 
 ```sh
 source ./.env.local
-scripts/build/build_stm32.sh --public-key-header /external/stm32-public.h
-scripts/build/build_nordic.sh --profile phase12
+scripts/test/run_native.sh
+scripts/build/build_nordic.sh --profile reliability
+scripts/build/build_stm32.sh --profile reliability
+scripts/build/build_stm32.sh --profile bootloader --public-key-header "$STM_PUBLIC_HEADER"
 ```
 
-`phase12-verbose` selects identical metrics/features but retains informational
-logs for the measured flash comparison. `phase12` retains warnings/errors and all
-typed SMP events; phase9/10/11/default remain independently selectable. Builds never
-flash. Never overwrite the custom STM loader with the standalone application.
+For a fresh checkout, initialize pinned submodules and SDKs as described in setup.
+Native portable tests do not need the Nordic SDK; optional real-CBOR integration
+checks require its pinned sources. Do not assume an absent SDK ran those tests.
+The historical build interfaces remain available, but the complete operator system
+uses `reliability`. Build scripts do not flash hardware.
 
-## Create the release
+## Stage a bundle
 
-Use the Phase11 bundle creation commands with a fresh directory, e.g.
-`build/release-0.12.0/`, changing:
-
-- Nordic source to `build/nrf54l15-host-phase12/nrf54l15-host/zephyr/zephyr.signed.bin`.
-- Both signed slot package versions and `--system-version` to0.12.0.
-- Build ID to a chosen deterministic release identifier (e.g.0xc00).
-
-Full staging/signing commands are in PHASE_11_TESTING.md; raw STM loader, both
-slot-linked binaries and the original matching private/public keys are required.
-Do not replace the loader's trust root implicitly. Independent runtime firmware
-version can remain0.6.0; package version describes the signed candidate and does
-not prove the running app was upgraded.
+Create signed slot packages using the [image commands](FIRMWARE_UPDATES.md#keys-and-stm32-packages).
+The private key must match the loader's public key. The sample below assumes
+`build/images/slot0.mmfw` and `slot1.mmfw`, both signed with package version 0.6.0:
 
 ```sh
+mkdir -p build/release
+cp build/nrf54l15-host-reliability/nrf54l15-host/zephyr/zephyr.signed.bin build/release/nordic.signed.bin
+cp firmware/stm32u083/bootloader/build/release/multi_mcu_stm32_bootloader.bin build/release/stm32-bootloader.bin
+cp build/images/slot0.mmfw build/release/slot0.mmfw
+cp build/images/slot1.mmfw build/release/slot1.mmfw
+.venv/bin/python tools/firmware/release_bundle.py create build/release/release.json \
+  --nordic build/release/nordic.signed.bin \
+  --bootloader build/release/stm32-bootloader.bin \
+  --slot0 build/release/slot0.mmfw --slot1 build/release/slot1.mmfw \
+  --system-version 0.6.0 --public-key "$STM_PUBLIC_KEY"
 .venv/bin/python tools/firmware/release_bundle.py verify \
-  build/release-0.12.0/release.json --public-key /external/stm32-public.pem
+  build/release/release.json --public-key "$STM_PUBLIC_KEY"
 .venv/bin/python tools/firmware/release_archive.py create \
-  build/release-0.12.0/release.json build/multi-mcu-0.12.0.zip \
-  --public-key /external/stm32-public.pem
+  build/release/release.json build/multi-mcu-release.zip --public-key "$STM_PUBLIC_KEY"
 .venv/bin/python tools/firmware/release_archive.py verify \
-  build/multi-mcu-0.12.0.zip --public-key /external/stm32-public.pem
+  build/multi-mcu-release.zip --public-key "$STM_PUBLIC_KEY"
 ```
 
-Identical bundle input bytes produce identical ZIP bytes (fixed metadata, sorted
-uncompressed entries). Rebuilding firmware itself can depend on Git/build IDs,
-compiler and SDK paths; archive determinism is not a blanket bit-reproducible
-firmware build claim. Each archive has exactly release.json plus four artifacts;
-resources/test reports remain separate evidence, never private keys or SDK trees.
+Change both package versions and `--system-version` together for another release.
+Nordic and runtime application versions are independent; package metadata alone does
+not prove which application ran. The raw loader must be BIN, not ELF/HEX. Manifest
+paths are relative to its directory; all four artifacts must reside below it.
 
-The manifest is integrity metadata, not a signed authority for the raw loader.
-Trusted release provenance remains required; MCUboot/STM signed-image verification
-and open SWD/ROM recovery security limitations remain unchanged.
+Identical input bytes produce identical archives: entries are sorted, uncompressed,
+and use fixed metadata. That is archive determinism, not a blanket claim that SDK
+firmware builds are bit-reproducible across paths/toolchains. Each archive contains
+exactly the manifest plus four artifacts. Resource/test reports are separate evidence.
 
-## Final acceptance
+The manifest verifies artifact integrity but is not a signature authority for the
+raw loader. Obtain release bundles from a trusted source. Nordic signature authenticity
+is enforced by MCUboot; STM applications are independently P-256 verified. ROM repair
+does not install Nordic firmware and is not an atomic multi-MCU upgrade.
 
-Run PHASE_12_TESTING.md's strict100/600 acceptance and explicit update/recovery
-matrix on actual boards. Keep JSON evidence and SDK/Git/tool versions with the
-release outside source control when captures may contain sensitive data. Do not
-mark skipped destructive checks PASS, and do not treat synthetic fixtures as HIL.
+## Publication checks
 
-
-## Reliability extension status
-
-The approved Milestones13–16 continuation is in [RELIABILITY_PLAN.md](RELIABILITY_PLAN.md).
-Its independently selectable reliability builds and acceptance runner are documented
-in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md). Preserve baseline release bundles;
-new watchdog, journal, acknowledged-event and failure scenarios require their own
-hardware acceptance. Native/build PASS does not promote that acceptance automatically.
+Do not include signing keys, local environments, SDK trees or private captures in
+source/release archives. Include test provenance and unresolved hardware gates in
+release notes. Never mark skipped destructive tests PASS, use a fixture as physical
+evidence, or claim production secure boot with the current open SWD/ROM configuration.

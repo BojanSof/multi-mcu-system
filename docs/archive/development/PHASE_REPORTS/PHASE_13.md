@@ -1,29 +1,29 @@
-# Milestone 15 — Negotiated acknowledged events and wakeups
+# Milestone 13 — Watchdog and bounded automatic recovery
 
-Status: software implemented and native/build verified; actual IRQ delivery pending.
+Status: software implemented and build/native verified; hardware acceptance pending.
 
 ## Delivered behavior and frozen interface
 
-Wire-major1 stays unchanged. Capabilitybit5, ENABLE0x0006, ACK0x0007 and event0x8001
-are additive. STM16-entry queue uses stop-and-wait (cumulative window1),250ms retry,
-maximum5 sends before counted exhaustion; pending data and IRQ remain until ACK.
-Admission failures return backpressure; actuator completion stays at its producer
-until admitted, and button loss has a separate counter. Lifecycle0x000c exposes
-pending/rejections/retries/exhaustion/button-loss/next-ID counters.
+New `reliability` profile retains historical profiles. Nordic watchdog30s feeds
+only after both main and workqueue progress. Node offline does not prevent feed.
+Existing response500ms/3 retries and heartbeat2s remain. Recovery rediscovery5s,
+NRST20ms, discovery10s, backoffs1s/5s, rolling3-pulse/60s bound and consecutive
+failure latch are covered with a deterministic clock. Intentional lifecycle modes,
+UART update/repair ownership and repeated-reboot latch suppress competing reset.
+No automatic BOOT0 or ROM repair. Pending work is canceled, never replayed.
 
-Nordic validates session, numbering and bounds, admits to bounded history then ACKs;
-duplicates are not republished. History overwrite does not imply PC consumption.
-GPIO/UART callbacks wake main only, with10ms timer/poll fallback and initial IRQ-level
-check. No measured power-saving claim is made.
+SMP APIv1 command8 adds status/clear, boot identity and eight-admission replay cache;
+CLI `node recovery status|clear`, mutation requires `--yes`. Status health/reason
+are separate from lifecycle. Reset cause is Zephyr hardware-info flags. Native tests
+cover policy timing/window boundaries, lifecycle suppression and real CBOR stale
+boot, busy and clear deduplication. Nordic watchdog DT enable is profile-local.
 
-Independent review found and fixed three reconnect issues: HELLO now renegotiates
-mode for legacy reconnect; explicit new negotiation rearms exhausted events without
-changing IDs; host preserves its cursor across same-session manager rediscovery.
-Native tests exercise actual STM transport and host manager, lost ACK, no callback,
-TX-full ACK retry, stale session, malformed/gapped events, bounded exhaustion and
-legacy downgrade preserving queued data. New lifecycle replies do not falsely
-increment protocol-error counters. Node reset still discards volatile events;
-this is not durable exactly-once delivery across arbitrary power loss.
+## Remaining hardware gate
+
+Verify enabled watchdogs actually reset on failed progress; collect reset causes.
+Measure recovery against real signed-loader startup time, observe at most3 pulses
+per60s and no resets in maintenance/update/repair. Tune only with recorded evidence.
+Debugger halt pauses Nordic watchdog; see testing guide for feed-gate procedure.
 
 ## Verification environment and provenance
 
@@ -101,7 +101,7 @@ stubs and RWX load segment. No project compiler error was ignored.
 
 Local ignored evidence: `build/reliability-validation/{tests,nordic,stm32}.log`.
 No analyzer capture was made. Full hardware commands and criteria are in
-[RELIABILITY_TESTING.md](../RELIABILITY_TESTING.md).
+[RELIABILITY_TESTING.md](../../../RELIABILITY_TESTING.md).
 
 
 ## Post-HIL startup correction — 2026-10-26
@@ -125,11 +125,8 @@ this Nordic-only correction. User startup confirmation is recorded below; extend
 
 ## User hardware confirmation
 
-Source: user-supplied status and quick-demo logs. Reliability capabilities63,
-node online/healthy, five sensor requests and ten-second event watch PASS, including
-actuator progress/completion and four asynchronous watch events. During run:
-protocol errors, retries, timeouts, UART errors, RX/TX overflows all0. Lifetime
-reliable_gaps, reliable_duplicates and event_ack_retries all0. Host history dropped6
-means overwritten retained records, not demonstrated wire loss. UART/poll fallback
-works with gpio_interrupts:false. Deliberate lost ACK/exhaustion/legacy-reconnect
-hardware exercises remain NOT_RUN_HARDWARE.
+Source: user-supplied real-board status after reflashing the startup correction.
+Host boot ID3685201341 is nonzero; node online/healthy, watchdog/supervision/update/
+ROM support true, gpio_interrupts false as expected. This confirms successful
+startup and watchdog enable, not a deliberate watchdog-expiry/reset test.
+Automatic recovery escalation and fault-latch timing remain NOT_RUN_HARDWARE.

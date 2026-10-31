@@ -13,12 +13,24 @@ virtual outputs and prerequisites are software state; they do not control or mea
 | 5 | `CORRUPT_UART` | Corrupts one encoded response after the clean enable response |
 | 6 | `TRUNCATE_UART` | Sends half of one encoded response after the clean enable response |
 | 7 | `EARLY_VIRTUAL_OUTPUT` | Reverses modeled prerequisite/output ordering |
-| 8 | `TASK_STALL` | Pauses the communication task once for a bounded 1.5 seconds |
+| 8 | `TASK_STALL` | Pauses the communication task once for a six seconds |
 
-On the Nordic DK, a short button press retains the normal Phase 3 service action. A press held for
-at least 1.5 seconds cycles `OFF -> 1 -> ... -> 8 -> OFF`. Each selection disables the previous
-mask before enabling the new one and logs the returned status. ID 1 cannot alter the current boot;
-use the STM `debug-early-ready` preset for that analyzer lesson.
+Use signed `debug-reliability-slot0` or `debug-reliability-slot1` firmware for an
+existing A/B installation. Sign for the inactive slot and update normally; never
+replace the loader with a standalone Debug image. ID 1 needs its explicit early-
+READY boot option; enabling it after boot cannot recreate a startup race.
+
+```sh
+scripts/mmctl --port "$NRF_PORT" --yes diagnostics inject 4
+scripts/mmctl --port "$NRF_PORT" actuator start --duration-ms 2000
+scripts/mmctl --port "$NRF_PORT" diagnostics records
+scripts/mmctl --port "$NRF_PORT" --yes diagnostics clear
+```
+
+For dropped acceptance, compare execution/operation IDs to prove one execution,
+not merely one printed response. For stall injection, expect watchdog reset and
+rediscovery; it must not replay a failed command. Release rejection is not proof
+of fault reproduction. See [testing](TESTING.md) for guarded hardware procedures.
 
 The operator helper never claims direct hardware control:
 
@@ -34,21 +46,15 @@ Generate deterministic illustrative evidence without hardware:
 ```sh
 .venv/bin/python tools/fault-runner/fault_runner.py \
   scenario duplicate_operation --mode fixed --seed 7 --duration-ms 1000 \
-  --csv /tmp/duplicate.csv --vcd /tmp/duplicate.vcd
+  --csv build/duplicate.csv --vcd build/duplicate.vcd
 ```
 
 Every generated row and VCD header is marked `SIMULATED`. See `hardware/LOGIC_ANALYZER.md` for the
 three mandatory analyzer tutorials, exact probe locations and the distinction between UART bytes,
 the DEBUG marker and application state.
 
-Collect independent console logs for a bounded interval:
-
-```sh
-.venv/bin/python tools/log-collector/log_collector.py \
-  --host serial:/dev/ttyACM0 --node serial:/dev/ttyACM1 \
-  --duration 30 --format jsonl --output /tmp/phase4.jsonl
-```
-
-Confirm which ACM device belongs to each board before running. The collector preserves raw bytes,
-adds host receipt timestamps and labels `clock_synchronized=false`; receipt ordering does not make
-the two MCU uptime clocks globally synchronized.
+Collect STM ST-LINK logs and exported Nordic RTT logs with
+[the log collector](../tools/log-collector/README.md). Do not open the Nordic SMP
+VCOM as a text log stream. Receipt timestamps are correlation aids, not clock
+synchronization. Raw captures belong in ignored build/private directories until
+reviewed for publication.

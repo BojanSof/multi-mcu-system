@@ -1,43 +1,79 @@
 # Compatibility and lifecycle policy
 
-Firmware, transport and services are versioned independently. Compatibility is evaluated before a
-service is used; discovering one incompatible optional service does not take the link or other
-compatible services offline.
+Firmware, transport and services are versioned independently. Discovering an
+incompatible optional service does not disable compatible services or the link.
 
 ## Version rules
 
-- Unknown protocol wire major: reject the frame and do not mutate state.
-- Management major mismatch during HELLO: discovery fails explicitly.
-- Service major mismatch: that service is unavailable.
-- Equal service major with offered minor greater than or equal to the host-required minor:
-  compatible. Unknown optional fields or capabilities are ignored unless a command requires them.
-- An unsupported command receives an explicit error and does not break other services.
-- Firmware semantic versions and the 32-bit build identifier are informational in Phase 5. Update
-  eligibility and rollback policy are added in later phases.
+- Unknown application wire major: reject before state mutation.
+- Management major mismatch during HELLO: discovery does not become online.
+- Service compatibility: equal major and `offered_minor >= required_minor`.
+- Unknown optional capabilities are ignored unless an operation requires them.
+- Unsupported commands receive an explicit error without invalidating other services.
 
-The host currently requires lifecycle `1.0`, diagnostics `1.0`, and the known virtual-I/O service
-majors. It never infers compatibility from firmware version alone.
+The host requires version 1.0 of known lifecycle, diagnostics and virtual-I/O
+services. Reliability nodes offer lifecycle 1.1 with fault-history/event-status
+commands. Firmware versions and build identifiers are informational; update
+eligibility additionally checks target, hardware, slot/link address, size, key,
+algorithm and protocol requirements. There is no semantic-version anti-rollback
+policy: an otherwise valid signed older image is not rejected solely for age.
 
-## Lifecycle and sessions
+## Supported event combinations
 
-Normal node progression is `INIT -> READY -> ONLINE`. `MAINTENANCE` and software-only `SHUTDOWN`
-stop acceptance of new virtual-I/O work while keeping lifecycle, diagnostics and heartbeat control
-available. Neither state controls physical power. `FAULT_LATCHED` requires a deliberate local
-restart; it is not cleared by another transient UART response.
+| Host | Node | Event behavior | Persistent node faults |
+|---|---|---|---|
+| Original event client | Original node | Legacy unsolicited frames | Unavailable |
+| Original event client | Reliability node | Legacy frames after HELLO/LIST | Available through lifecycle commands |
+| Reliability host | Original node | Legacy frames; no extension sent | Unavailable |
+| Reliability host | Reliability node | Numbered events, ACK and level-held IRQ | Lifecycle 1.1 journal |
 
-A node warm reboot creates a new session. READY loss/re-rise independently forces rediscovery and
-counts a reboot, covering cold power loss where volatile session history may restart. The host
-discards pending work and does not automatically replay an unconfirmed application command. A host
-reboot likewise starts with no pending application operation; the node finishes only already
-accepted bounded local work.
+Both virtual-I/O personalities use the same negotiation. Sensor-only nodes reject
+actuator operations while keeping sensor and management services available.
 
-## Supervision ownership
+## Lifecycle, health and sessions
 
-- Parser errors are rejected and resynchronized by the protocol layer.
-- The STM watchdog is refreshed only while application progress advances.
-- READY loss identifies node unavailability; request timeouts with READY still asserted identify a
-  stalled or degraded application/link path.
-- Three observed node resets within 30 seconds latch the host fault. Physical NRST escalation is
-  disabled until its electrical connection is separately verified and approved.
-- Reset-cause values are diagnostic evidence, not safety certification. Raw hardware flags are
-  included so unknown combinations remain observable.
+Normal node progression is `INIT -> READY -> ONLINE`. `MAINTENANCE` and
+software-only `SHUTDOWN` keep lifecycle, diagnostic and heartbeat access available
+while restricting virtual-I/O work. Neither mode controls physical power.
+
+Host health (`healthy`, `degraded`, `recovering`, `failed`) is separate from node
+lifecycle mode. A node warm reboot changes its session. READY loss/re-rise also
+forces rediscovery when volatile session history may restart after power loss.
+Pending work is failed or canceled, never automatically replayed into a new
+session. A host reboot likewise creates a new boot identity and loses its volatile
+request history. The node may finish already accepted finite local work.
+
+Sequence numbers correlate individual exchanges; operation IDs identify logical
+work; event IDs identify acknowledged deliveries. Their caches are bounded and
+session-scoped, not a durable exactly-once guarantee across arbitrary resets.
+
+## Supervision and recovery ownership
+
+- Framing errors are rejected and the parser resynchronizes at a delimiter.
+- Request timeouts are 500 ms with at most three retries; protocol heartbeats run
+  every two seconds while online and idle.
+- The STM watchdog observes application progress. The Nordic 30-second watchdog
+  requires both main-loop and system-workqueue progress; node availability is not
+  a host-feed prerequisite.
+- Unexpected READY loss first permits rediscovery/local-watchdog recovery. The
+  host then uses a five-second discovery interval, a 20 ms NRST pulse, up to ten
+  seconds for discovery, and one/five-second backoffs after failed attempts.
+- At most three automatic NRST pulses are allowed in a rolling 60-second window.
+  Exhausted recovery and three observed node reboots within 30 seconds latch a
+  fault. Restore the underlying problem, then explicitly use
+  `scripts/mmctl --port "$NRF_PORT" --yes node recovery clear` to rediscover.
+- Intentional maintenance/shutdown and update/repair UART ownership suppress
+  competing reset escalation. Automatic recovery never asserts BOOT0 or repairs
+  firmware. Clearing a latch does not replay failed operations.
+
+The verified Port 2 READY/IRQ pins remain readable but lack GPIOTE interrupt
+support in the pinned SDK. `gpio_interrupts:false` is expected: UART wake plus
+10 ms polling remains active. Exact voltage, pins and power order are in
+[the pinout](../hardware/PINOUT.md); reset causes are diagnostics, not safety
+certification.
+
+## Verification
+
+[VALIDATION.md](VALIDATION.md) separates software tests and user-reported hardware
+results from remaining failure-injection, watchdog-expiry and power-loss checks.
+A successful build or simulated fault is not hardware evidence.

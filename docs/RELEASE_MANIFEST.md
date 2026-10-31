@@ -1,8 +1,10 @@
 # Release bundle v2
 
-Phase 11 adds a separate `tools/firmware/release_bundle.py`; the Phase 6 v1
-manifest creator remains unchanged. One bundle directory contains a JSON manifest
-and referenced files; private keys are never bundled.
+`tools/firmware/release_bundle.py` creates and verifies the release bundle used by
+factory-ROM repair and chained signed recovery. The older integrity-only v1
+manifest utility remains separate and is not interchangeable with this format.
+One bundle directory contains a JSON manifest and referenced files; private keys
+are never bundled.
 
 The frozen v2 object is:
 
@@ -11,7 +13,7 @@ The frozen v2 object is:
   "format": "multi-mcu-release",
   "format_version": 2,
   "board": "nrf54l15dk+nucleo-u083rc",
-  "system_version": "0.11.0",
+  "system_version": "0.6.0",
   "api": 1,
   "wire": "1.0",
   "management": "1.0",
@@ -47,7 +49,7 @@ the loader was built with the matching public key; key_id alone does not prove i
 embedded key. ROM repair intentionally allows replacement of the trust root, so it
 is an unauthenticated development rescue facility, not production secure boot.
 
-Recovery safety range remains the canonical STM flash layout: loader pages0..31;
+Recovery safety range remains the canonical STM flash layout: loader pages 0–31;
 all application slots and metadata are preserved by ROM repair. Native regressions
 check these bounds against `flash_layout.yaml`. Recovery after interrupted transfer
 starts explicitly from a fresh ROM reset and erase; never blindly resumes writes.

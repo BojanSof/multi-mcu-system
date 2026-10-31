@@ -119,7 +119,7 @@ stubs and RWX load segment. No project compiler error was ignored.
 
 Local ignored evidence: `build/reliability-validation/{tests,nordic,stm32}.log`.
 No analyzer capture was made. Full hardware commands and criteria are in
-[RELIABILITY_TESTING.md](../RELIABILITY_TESTING.md).
+[RELIABILITY_TESTING.md](../../../RELIABILITY_TESTING.md).
 
 
 ## User hardware confirmation

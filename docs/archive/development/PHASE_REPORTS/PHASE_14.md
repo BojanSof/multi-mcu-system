@@ -1,29 +1,31 @@
-# Milestone 13 — Watchdog and bounded automatic recovery
+# Milestone 14 — Persistent node fault journal
 
-Status: software implemented and build/native verified; hardware acceptance pending.
+Status: software implemented and native/build verified; hardware persistence pending.
 
 ## Delivered behavior and frozen interface
 
-New `reliability` profile retains historical profiles. Nordic watchdog30s feeds
-only after both main and workqueue progress. Node offline does not prevent feed.
-Existing response500ms/3 retries and heartbeat2s remain. Recovery rediscovery5s,
-NRST20ms, discovery10s, backoffs1s/5s, rolling3-pulse/60s bound and consecutive
-failure latch are covered with a deterministic clock. Intentional lifecycle modes,
-UART update/repair ownership and repeated-reboot latch suppress competing reset.
-No automatic BOOT0 or ROM repair. Pending work is canceled, never replayed.
+Two2KiB pages at0x0803D000/0x0803D800 come from the previously reserved region.
+Application slots and two boot-journal pages retain their original bounds. YAML
+schema generates and validates journal addresses. Standalone whole-flash reliability
+configuration is rejected before writing anything.
 
-SMP APIv1 command8 adds status/clear, boot identity and eight-admission replay cache;
-CLI `node recovery status|clear`, mutation requires `--yes`. Status health/reason
-are separate from lifecycle. Reset cause is Zephyr hardware-info flags. Native tests
-cover policy timing/window boundaries, lifecycle suppression and real CBOR stale
-boot, busy and clear deduplication. Nordic watchdog DT enable is profile-local.
+Portable DiagnosticsJournal uses64-byte records, CRC, monotonic generation and
+commit-last doubleword. Rotation preserves newest committed data; clear commits a
+logical tombstone, not secure physical erasure. Tests cover every doubleword boundary,
+257 partial-erase boundaries, corrupt bytes, rollover and clear aging through rotations.
 
-## Remaining hardware gate
+Task-owned STM adapter writes boot summaries and coalesced important faults. At most
+8 fault writes per boot, one-second warning spacing, fatal pre-stall breadcrumb;
+no ISR/fatal-handler writes and no automatic storage-failure retry loop. Trial
+confirmation is not blocked on journal storage. Nordic reset cause is exposed without
+adding a second persistent journal.
 
-Verify enabled watchdogs actually reset on failed progress; collect reset causes.
-Measure recovery against real signed-loader startup time, observe at most3 pulses
-per60s and no resets in maintenance/update/repair. Tune only with recorded evidence.
-Debugger halt pauses Nordic watchdog; see testing guide for feed-gate procedure.
+Lifecycle1.1 adds0x000a read cursor,0x000b clear, preserving old commands and legacy1.0
+profiles. CLI `node faults list|clear` handles48-byte records/60-byte responses with
+session/cursor checks. `overwritten` is missing physical generations, not unread-PC
+loss; storage_errors is perboot observed I/O count. Read does not consume records.
+Native actual lifecycle-dispatch test checks lengths, read cursor, clear deduplication
+and legacy status behavior. Real flash retention/ECC behavior still requires boards.
 
 ## Verification environment and provenance
 
@@ -101,32 +103,13 @@ stubs and RWX load segment. No project compiler error was ignored.
 
 Local ignored evidence: `build/reliability-validation/{tests,nordic,stm32}.log`.
 No analyzer capture was made. Full hardware commands and criteria are in
-[RELIABILITY_TESTING.md](../RELIABILITY_TESTING.md).
-
-
-## Post-HIL startup correction — 2026-10-26
-
-User reported status with host_boot_id0, state disabled, supervision/stm_update false,
-watchdog false. Inspection confirms READY/IRQ use gpio2, which has no GPIOTE instance
-in the built DTS; pinned gpio_nrfx returns ENOTSUP. Optional callback setup had
-incorrectly aborted main before control initialization. Now required GPIO setup
-remains fatal, while optional IRQ setup logs warnings and uses UART wake/10ms polling.
-Status exposes gpio_interrupts:false on this configuration. No rewiring is required.
-Added actual HostSignals adapter regression for ENOTSUP, callback-allocation failure,
-partial support, initial IRQ assertion and genuine pin/device failures. Updated
-software/build results are recorded in build/reliability-validation/startup-fix-*.log.
-User subsequently confirmed successful startup; see hardware confirmation below.
-
-Startup-fix verification: PASS26 root CTests,2 bootloader CTests,331 Python tests;
-reliability, Phase12 and default Nordic rebuilds PASS. Reliability linker occupancy
-95424 FLASH /39392 RAM; unchanged STM images were not reflashed or rebuilt for
-this Nordic-only correction. User startup confirmation is recorded below; extended fault tests remain pending.
+[RELIABILITY_TESTING.md](../../../RELIABILITY_TESTING.md).
 
 
 ## User hardware confirmation
 
-Source: user-supplied real-board status after reflashing the startup correction.
-Host boot ID3685201341 is nonzero; node online/healthy, watchdog/supervision/update/
-ROM support true, gpio_interrupts false as expected. This confirms successful
-startup and watchdog enable, not a deliberate watchdog-expiry/reset test.
-Automatic recovery escalation and fault-latch timing remain NOT_RUN_HARDWARE.
+Source: user-supplied real-board journal output before and after explicit node reset.
+Journal healthy:true, overwritten:0, storage_errors:0. Generations1 and2 survived;
+generation3 records boot_count4/reset_reason2 with new session2027218649, replacing
+previous session3668929806. Warm-reset retention PASS. Power-cycle retention,
+flash interruption and fault-storm wear tests remain NOT_RUN_HARDWARE.

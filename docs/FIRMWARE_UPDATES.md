@@ -1,237 +1,217 @@
-# Firmware updates and recovery
+# Firmware installation, updates and recovery
 
-This document separates the two Phase 6 update paths. The Nordic host uses MCUboot/MCUmgr. The
-STM32 application has no in-application updater in Phase 6; its supported recovery path is the
-on-board ST-LINK over SWD. The STM32 factory ROM procedure below is a manual recovery exercise,
-not an nRF-controlled update path and not an atomic or signed update.
+All commands run from the project root after [setup](SETUP.md). Use the verified
+[wiring](../hardware/WIRING.md), Nordic-first power order and compatible 3.3 V I/O.
+Keep independent SWD access. Builds never flash automatically.
 
-## Nordic MCUboot/MCUmgr update
+There are three update mechanisms: Nordic MCUboot/MCUmgr, signed STM32 A/B update,
+and explicit STM32 factory-ROM repair. They are not an atomic system-wide update.
 
-Phase 6 uses SMP over the Nordic DK USB serial port; BLE is not required. The normal host build is
-unchanged. Build the explicit MCUboot profile from the repository root:
-
-```sh
-source ./.env.local
-cd .ncs-workspace
-../.venv/bin/west build -b nrf54l15dk/nrf54l15/cpuapp ../firmware/nrf54l15-host \
-  --build-dir ../build/nrf54l15-host-phase6 --pristine=always -- \
-  -DEXTRA_CONF_FILE=phase6_mcumgr.conf \
-  -DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay \
-  -DSB_EXTRA_CONF_FILE="$PWD/../firmware/nrf54l15-host/sysbuild_phase6_mcumgr.conf"
-cd ..
-```
-
-The frozen RRAM map is MCUboot 68 KiB, primary slot 696 KiB, secondary slot 696 KiB, and storage
-64 KiB. Both child builds consume the same overlay. The generated artifact uses the NCS default
-development Ed25519 key; that key is public and **not secure for production**. Phase 7 will address
-project key handling. Do not add private keys to Git.
-
-Initial installation writes MCUboot and the primary application over the DK debug probe:
+## Build the current firmware
 
 ```sh
 source ./.env.local
-cd .ncs-workspace
-../.venv/bin/west flash -d ../build/nrf54l15-host-phase6
-cd ..
+scripts/build/build_nordic.sh --profile reliability
+scripts/build/build_stm32.sh --profile reliability
 ```
 
-Build a distinct OTA candidate before testing. This preserves the flashed baseline image at version
-`0.6.0` and creates a version `0.6.1` candidate with a different signed hash:
+Nordic output is `build/nrf54l15-host-reliability/`. STM application outputs are
+`firmware/stm32u083/application/build/release-reliability-slot0/` and
+`firmware/stm32u083/application/build/release-reliability-slot1/`.
+
+## Keys and STM32 packages
+
+For an existing installation, reuse the private/public key pair matching its
+bootloader. Do not generate a replacement merely to make a build pass. The public
+key header is a bootloader build input; the private key is never a firmware input.
+
+Only for a new board with no trust root to preserve, create a development key once:
 
 ```sh
-source ./.env.local
-.venv/bin/west build \
-  --source-dir firmware/nrf54l15-host \
-  --build-dir build/nrf54l15-host-phase6-update \
-  --board nrf54l15dk/nrf54l15/cpuapp \
-  --pristine=always -- \
-  -DEXTRA_CONF_FILE='phase6_mcumgr.conf;phase6_update_test.conf' \
-  -DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_phase6_mcumgr.overlay \
-  -DSB_EXTRA_CONF_FILE="$PWD/firmware/nrf54l15-host/sysbuild_phase6_mcumgr.conf"
+umask 077
+mkdir -p keys build/images
+.venv/bin/python tools/firmware/generate_key.py keys/stm32-dev-private.pem keys/stm32-dev-public.pem
+.venv/bin/python tools/firmware/public_key_header.py \
+  keys/stm32-dev-public.pem keys/stm32-dev-public.h --key-id 1
 ```
 
-Do not flash this candidate through SWD for the OTA test. Close every terminal using the Nordic
-VCOM, identify its `/dev/ttyACM*` path, and substitute it below. Upload targets the inactive slot;
-it does not activate the image until `image-test` and reset. Copy the hash printed by `image-list`
-for the secondary version `0.6.1` image:
+`keys/` is ignored. Keep private-key backups outside the repository and never put
+private keys in release bundles. Set these variables to the existing keys or the
+new pair just created:
 
 ```sh
-NRF_PORT=/dev/ttyACM0
-nrfutil --log-output=stdout mcu-manager serial image-list --serial-port "$NRF_PORT"
-nrfutil --log-output=stdout mcu-manager serial image-upload \
-  --firmware build/nrf54l15-host-phase6-update/nrf54l15-host/zephyr/zephyr.signed.bin \
-  --image-number 0 --serial-port "$NRF_PORT"
-nrfutil --log-output=stdout mcu-manager serial image-list --serial-port "$NRF_PORT"
-nrfutil --log-output=stdout mcu-manager serial image-test --hash <SECONDARY_HASH> \
-  --serial-port "$NRF_PORT"
-nrfutil --log-output=stdout mcu-manager serial reset --serial-port "$NRF_PORT"
+export STM_PRIVATE_KEY="$PWD/keys/stm32-dev-private.pem"
+export STM_PUBLIC_KEY="$PWD/keys/stm32-dev-public.pem"
+export STM_PUBLIC_HEADER="$PWD/keys/stm32-dev-public.h"
+mkdir -p build/images
+scripts/build/build_stm32.sh --profile bootloader --public-key-header "$STM_PUBLIC_HEADER"
+for slot in 0 1; do
+  .venv/bin/python tools/firmware/sign.py \
+    --private-key "$STM_PRIVATE_KEY" --slot "$slot" --version 0.6.0 \
+    --build-id 0x60001 --wire 1.0 --management 1.0 \
+    "firmware/stm32u083/application/build/release-reliability-slot$slot/multi_mcu_stm32_application.bin" \
+    "build/images/slot$slot.mmfw"
+  .venv/bin/python tools/firmware/verify_signed.py \
+    "build/images/slot$slot.mmfw" --public-key "$STM_PUBLIC_KEY"
+done
 ```
 
-The normal image confirms itself only after GPIO and UART initialization plus complete compatible
-node discovery reach `online`. `image-list` must then show version `0.6.1` active and confirmed.
-Manual
-`image-confirm` is available for diagnosis, but bypasses that application self-test and is not the
-normal procedure.
+The slot ID and execution address are signed. Never write a slot-0-linked image to
+Slot 1. Package versions describe the signed candidate; the runtime firmware's
+reported version is compiled separately.
 
-For a controlled rollback exercise, build a separate version `0.6.2` candidate using
-`phase6_rollback_test.conf` and add `-DMULTI_MCU_PHASE6_UNCONFIRMED_TRIAL_DEMO=ON`, using build
-directory `build/nrf54l15-host-phase6-unconfirmed`. Upload and test its `zephyr.signed.bin`; after
-its first boot the log says it deliberately remains unconfirmed. Issue another MCUmgr reset (or
-press RESET) and MCUboot must revert to the last confirmed image. Record both `image-list` results.
-Never use the unconfirmed profile as a release image.
+## First installation on a new board
 
-An interrupted upload leaves the active slot intact. Reopen the serial port, run `image-list`, and
-repeat the complete upload. A corrupted or unsigned binary must be rejected during boot validation;
-do not mark it confirmed. These update, interruption, and rollback observations remain
-`NOT_RUN_HARDWARE` until performed on the DK.
-
-## STM32 safety boundary
-
-These instructions apply to `NUCLEO-U083RC`, board `MB1932-U083RC-B01`, with its factory
-STLINK-V2EC and STM32U083RCT6. They do not change option bytes or protection. In particular, do not
-use CubeProgrammer `-ob`, `-rdu`, or protection commands. Keep readout protection disabled as the
-board manual requires.
-
-Before changing jumpers or signal wires:
-
-1. Disconnect both boards from USB power.
-2. Remove all five nRF-to-STM application wires. This prevents PA10 traffic from accidentally
-   selecting ROM USART1 and leaves recovery independent of the Nordic firmware.
-3. Do not connect either board's 3.3 V or 5 V rail to the other board.
-
-The commands assume the repository root and the local environment file:
+This writes firmware. Confirm the intended probes before proceeding. Install
+Nordic MCUboot plus its application, then the STM custom loader:
 
 ```sh
-source ./.env.local
-STM32_IMAGE=firmware/stm32u083/application/build/debug-personality-b/multi_mcu_stm32_application.elf
-test -r "$STM32_IMAGE"
-STM32_Programmer_CLI --version
-```
-
-Build the image first if necessary:
-
-```sh
-cmake --preset debug-personality-b -S firmware/stm32u083/application
-cmake --build firmware/stm32u083/application/build/debug-personality-b --parallel
-```
-
-## Primary STM32 recovery: ST-LINK/SWD
-
-SWD is the first recovery choice because it needs no BOOT0 or UART routing change. Connect only the
-STM board's ST-LINK USB connector to the PC. List probes and make a read-only connection:
-
-```sh
-STM32_Programmer_CLI -l st-link
-STM32_Programmer_CLI -c port=SWD mode=UR reset=HWrst
-```
-
-`mode=UR` connects under hardware reset, which is useful when damaged application code immediately
-faults, sleeps, or reconfigures debug pins. Program, byte-verify, and reset in one operation:
-
-```sh
+.venv/bin/west flash -d build/nrf54l15-host-reliability
+STM32_Programmer_CLI -l stlink
 STM32_Programmer_CLI -c port=SWD mode=UR reset=HWrst \
-  -w "$STM32_IMAGE" -v -rst
+  -w firmware/stm32u083/bootloader/build/release/multi_mcu_stm32_bootloader.elf -v -rst
+scripts/mmctl device list
+export NRF_PORT=/dev/serial/by-id/YOUR_NORDIC_JLINK_PORT
 ```
 
-The operation passes only if CubeProgrammer reports both download and verification successful. Open
-the STM VCP afterward and confirm the expected application banner. If power or USB is interrupted,
-reconnect and repeat the same command; no resume state is assumed.
+With no boot journal or valid application, STM stays in the custom recovery
+loader. Host status can be offline while update commands remain available. Install
+its first signed Slot 0 image through the loader, which creates the pending/trial
+metadata and lets the application confirm itself. A recovery-only board can exhaust
+the host startup reset budget while you prepare files. Before the first transfer,
+inspect status; if health is `failed`, clear its latch and immediately begin the
+explicit update. Update ownership then suppresses automatic reset escalation:
 
-### Optional backup and explicit full erase
-
-Normal ELF programming erases the required flash pages, so a full erase is not normally necessary.
-Before an intentional full erase, save all 256 KiB of main flash to a location outside the Git tree:
 
 ```sh
-STM32_Programmer_CLI -c port=SWD mode=UR reset=HWrst \
-  -u 0x08000000 0x40000 /tmp/stm32u083-main-flash-backup.bin
+scripts/mmctl --port "$NRF_PORT" status
+# Only if health is failed on this known recovery-only installation:
+scripts/mmctl --port "$NRF_PORT" --yes node recovery clear
+scripts/mmctl --port "$NRF_PORT" --yes stm update build/images/slot0.mmfw --public-key "$STM_PUBLIC_KEY"
+scripts/mmctl --port "$NRF_PORT" stm status
+scripts/mmctl --port "$NRF_PORT" status
+scripts/mmctl --port "$NRF_PORT" sensor sample
 ```
 
-Only when losing the existing application is acceptable:
+This initial-install sequence is supported by the boot/update state machines;
+its fresh-board hardware acceptance must be recorded separately from previously
+reported updates of an installed system.
+
+Expect update `complete`, confirmed Slot 0, node `online`, nonzero session and a
+sample. If this is not a genuinely new board, do not assume Slot 0 is available:
+follow inactive-slot selection below. Merely programming a slot ELF does not install
+its signed header or boot-selection metadata. Never flash the standalone application
+at `0x08000000` over an installed custom bootloader. Do not erase boot metadata or
+mass-erase as an installation shortcut.
+
+## Ordinary signed STM32 update
+
+Read the status and use the slot opposite the last confirmed image. For example,
+with Slot 0 confirmed:
 
 ```sh
-STM32_Programmer_CLI -c port=SWD mode=UR reset=HWrst -e all
-STM32_Programmer_CLI -c port=SWD mode=UR reset=HWrst \
-  -w "$STM32_IMAGE" -v -rst
+scripts/mmctl --port "$NRF_PORT" stm status
+scripts/mmctl --port "$NRF_PORT" --yes stm update build/images/slot1.mmfw --public-key "$STM_PUBLIC_KEY"
+scripts/mmctl --port "$NRF_PORT" stm status
+scripts/mmctl --port "$NRF_PORT" node versions
+scripts/mmctl --port "$NRF_PORT" sensor sample
 ```
 
-Do not erase merely to test interruption. Phase 6 has no STM A/B rollback; an interrupted erase or
-program leaves the application unavailable until this recovery command succeeds.
+Status 255 means unknown, not "either slot is safe". Use your last confirmed update
+record; the bootloader still enforces confirmed/selected/pending-slot protection.
+`error=-18, protocol=6` means a protected-slot refusal: inspect status and choose the
+inactive image. Query timeout `-116` before transfer can indicate a missing loader,
+wrong UART wiring or a bootloader-entry problem.
 
-## Manual STM32 factory-ROM recovery over ST-LINK VCP
+The PC validates package bounds, hardware, hash and signature before opening serial.
+Nordic streams acknowledged chunks without staging a complete image. STM verifies
+again before selecting pending. Completion requires trial confirmation and runtime
+rediscovery, not just upload. Do not press reset during normal verification.
 
-ST AN2606 Rev 70 groups STM32U073xx/83xx together. Their factory bootloader uses activation
-Pattern 11 and supports USART2 RX/TX on PA3/PA2. USART initialization is 8 data bits, even parity,
-one stop bit, with `0x7f` synchronization. UM3256 Rev 2 shows that the board's default VCP routing is
-USART2 on PA2/PA3. This keeps ROM recovery separate from the PA9/PA10 application link.
+If a transfer is uncertain, run `stm status`. The CLI does not reconnect and replay
+writes. Ctrl-C attempts a pre-commit abort; explicit `stm abort --yes` cannot cancel
+an already committed pending transition. A deliberate failing trial may report
+`rolled_back` and a nonzero CLI exit; the original confirmed application must return.
+See [bootloader design](BOOTLOADER.md) and [failure tests](TESTING.md).
 
-The STM32U083 factory defaults observed on the test board were `NBOOT_SEL=1`, `nBOOT0=1`,
-`nBOOT1=1`, and `BOOT_LOCK=0`. That configuration ignores the physical BOOT0 pin and boots main
-flash. The hardware recovery test therefore changed only the reversible `NBOOT_SEL` option byte to
-`0`, verified the readback, and exercised ROM USART programming. `NBOOT_SEL=0` is retained as the
-development configuration so the physical recovery jumper remains usable; the board's default
-BOOT0 pull-down selects main flash when the jumper is absent.
-Never change RDP, `BOOT_LOCK`, write protection, `nBOOT0`, or `nBOOT1` for this test.
+## Nordic image update
 
-With the BOOT0 jumper removed, enable the physical pin and verify the readback over SWD:
+The reliability build uses MCUboot and serial MCUmgr through J-Link VCOM. The
+current configuration uses the SDK development signing key; it is not a production
+trust root. STM uses the separate P-256 key above.
+
+Build a candidate with distinct version/content/hash in a separate checkout or
+build directory and supply its `zephyr.signed.bin`. Uploading the same image twice
+does not demonstrate replacement. Keep a known working build/probe rescue path.
 
 ```sh
-STM32_Programmer_CLI -c port=SWD mode=UR reset=HWrst -ob NBOOT_SEL=0
+scripts/mmctl --port "$NRF_PORT" host image list
+scripts/mmctl --port "$NRF_PORT" --yes host image update path/to/candidate/zephyr.signed.bin
+scripts/mmctl --port "$NRF_PORT" host image list
+```
+
+The CLI checks image structure/hash, uploads the secondary image, marks it for
+trial, resets, then reconnects for read-only image state. MCUboot enforces the
+signature. The application confirms only after initialization and compatible node
+discovery. Inspect active/confirmed flags; do not use manual confirmation to bypass
+failed self-tests. `dfu_application.zip` is not accepted by this CLI.
+
+## STM32 SWD rescue
+
+SWD can restore a damaged custom loader without changing boot options. Disconnect
+power before modifying wires, identify the intended ST-LINK, then program only the
+matching-key loader ELF as shown above. Do not write a standalone application over
+it. A loader binary does not contain private key material, but its public trust root
+must match your signed packages. Preserve boot/app metadata and application slots.
+
+## Explicit factory-ROM repair
+
+The automated path uses the existing BOOT0 and open-drain NRST wires, USART1
+PA9/PA10 at 115200 **8E1**, and ST AN3155. It is an unauthenticated rescue path.
+Before authorizing it, manually verify `NBOOT_SEL=0`, `nBOOT1=1`, `BOOT_LOCK=0`,
+compatible voltage, default BOOT0 low and working SWD rescue. Read options only:
+
+```sh
 STM32_Programmer_CLI -c port=SWD mode=UR reset=HWrst -ob displ
 ```
 
-Continue only when `NBOOT_SEL=0`, `nBOOT1=1`, and `BOOT_LOCK=0` are reported.
+Factory defaults can ignore BOOT0. If the required selection is absent, stop and
+review the exact board manual and reversible boot-selection change separately.
+The CLI never changes options/protection. Do not change RDP, BOOT_LOCK or write
+protection to make this demo work. Remove any BOOT0-to-VDD jumper before Nordic
+controls BOOT0. Keep other STM UART interfaces idle during ROM selection.
 
-1. With USB disconnected and the application wires removed, place a removable 2.54 mm jumper
-   between CN7 pin 5 (`VDD`) and CN7 pin 7 (`BOOT0`). UM3256 states BOOT0 defaults low and this
-   jumper sets it high. Do not use CN7 pin 6 (`E5V`) or CN7 pin 8 (`GND`).
-2. Connect the STM ST-LINK USB cable. Press and release B2 RESET once so BOOT0 is sampled high.
-3. Find the ST-LINK VCP. On Linux, identify it by device metadata rather than assuming `ACM0`:
+Create and validate a matching release bundle as described in
+[release packaging](FINAL_RELEASE.md), then explicitly repair:
 
-   ```sh
-   STM32_Programmer_CLI -l uart
-   udevadm info --query=property --name=/dev/ttyACM0 | \
-     grep -E 'ID_VENDOR|ID_MODEL|ID_SERIAL'
-   ```
+```sh
+scripts/mmctl --port "$NRF_PORT" --yes stm recover build/release/release.json \
+  --public-key "$STM_PUBLIC_KEY" --rom-prerequisites-verified
+scripts/mmctl --port "$NRF_PORT" stm recover-status
+```
 
-4. Substitute the identified port below. Do not have a terminal emulator open on that port:
+The host checks device ID/capabilities, erases only bootloader pages 0–31, writes
+with readback, then restores BOOT0 low, UART 8N1 and reset. Application slots and
+metadata are preserved. If runtime is unavailable, the CLI can chain a signed
+application recovery; it never flashes Nordic as a side effect. Restoration failure
+retains exclusive UART ownership until explicit recovery.
 
-   ```sh
-   STM32_ROM_PORT=/dev/ttyACM0
-   STM32_Programmer_CLI -c port="$STM32_ROM_PORT" br=115200 P=EVEN db=8 sb=1 fc=OFF
-   STM32_Programmer_CLI -c port="$STM32_ROM_PORT" br=115200 P=EVEN db=8 sb=1 fc=OFF \
-     -w "$STM32_IMAGE" -v
-   ```
+An interrupted repair can leave a partial loader. `stm recover-abort --yes` restores
+pins/UART but cannot undo erased flash; perform a full explicit repair or SWD rescue.
+No automatic mutating reconnect, mass erase or metadata bypass is supported.
 
-5. Disconnect STM USB power, remove the CN7 5-to-7 BOOT0 jumper, reconnect USB, and press B2. Confirm
-   the normal application banner and Nordic discovery only after restoring the verified application
-   wiring with both boards unpowered.
+## Verification status and security limits
 
-6. Verify the development boot policy before reconnecting application wiring:
+Normal signed slot updates, Nordic image update, manual ROM programming and
+host-driven loader repair have user-reported hardware success. Destructive update
+interruption, power-loss boundaries and deliberate STM trial rollback remain
+separate verification gates; see [validation status](VALIDATION.md).
 
-   ```sh
-   STM32_Programmer_CLI -c port=SWD mode=UR reset=HWrst -ob displ
-   ```
+CRC32 detects transmission corruption. SHA-256 hashes and ECDSA authenticate STM
+images through signed metadata; payloads and runtime UART traffic are not encrypted.
+Open SWD/ROM rescue, development keys and unprovisioned protections mean this is
+not production-secured boot. STM CRC/SHA-256/ECDSA currently execute in software.
 
-   The final display must report `NBOOT_SEL=0`, `nBOOT1=1`, and `BOOT_LOCK=0`. Keep the BOOT0
-   jumper removed for normal main-flash boot. `NBOOT_SEL=1` may be restored later over SWD if a
-   finalized deployment should ignore the physical BOOT0 pin.
-
-If the UART operation is interrupted, keep BOOT0 high, power-cycle, press B2, and repeat the complete
-connect/write/verify sequence. If UART recovery cannot reconnect, remove the BOOT0 jumper and use
-the SWD procedure. Do not mass-erase or change option bytes as a troubleshooting shortcut.
-
-### ROM procedure acceptance status
-
-The user verified ROM identification, programming, and byte verification on the
-NUCLEO-U083RC. Interrupted ROM programming recovery remains a separate optional exercise.
-
-No automated nRF-driven BOOT0/NRST path is included. RESET remains subject to an open-drain-only
-electrical design and explicit approval; Phase 6 does not add those wires.
-
-## Authoritative STM references
-
-- [AN2606 Rev 70, system-memory boot mode](https://www.st.com/resource/en/application_note/an2606-stm32-microcontroller-system-memory-boot-mode-stmicroelectronics.pdf), section 91 for STM32U073xx/83xx and activation Pattern 11 in Table 2.
-- [AN3155, USART protocol used in the STM32 bootloader](https://www.st.com/resource/en/application_note/an3155-usart-protocol-used-in-the-stm32-bootloader-stmicroelectronics.pdf).
-- [UM3256 Rev 2, MB1932 Nucleo-64 board](https://www.st.com/resource/en/user_manual/um3256-stm32-nucleo64-boards-mb1932-stmicroelectronics.pdf), sections 7.3, 7.7, 7.11 and 8.2.
-- [RM0503, STM32U0 reference manual](https://www.st.com/resource/en/reference_manual/rm0503-stm32u0-series-advanced-armbased-32bit-mcus-stmicroelectronics.pdf), boot configuration and option-byte loading.
+References: [ST AN2606](https://www.st.com/resource/en/application_note/an2606-stm32-microcontroller-system-memory-boot-mode-stmicroelectronics.pdf),
+[ST AN3155](https://www.st.com/resource/en/application_note/an3155-usart-protocol-used-in-the-stm32-bootloader-stmicroelectronics.pdf),
+[NUCLEO board manual](https://www.st.com/resource/en/user_manual/um3256-stm32-nucleo64-boards-mb1932-stmicroelectronics.pdf).

@@ -13,6 +13,7 @@ new common directory.
 | `libraries/diagnostics` | C11 only | None | Bounded records/injection state; logging backends stay in firmware/tools |
 | `libraries/firmware-image` | C11 only | None | Format parsing/compatibility; crypto and flash writes remain adapters |
 | `libraries/boot-protocol` | C11 only | None | Message encoding only; not a UART or flash implementation |
+| `libraries/stm32-rom-boot` | C11 only | None | Bounded restricted ROM transactions; adapter owns pins/parity |
 | `examples/virtual-io` | `NodeApi::NodeApi` | None | Optional demonstration; may be removed without changing management/wire APIs |
 | Nordic host firmware | Zephyr/NCS plus portable modules | nRF54L15-DK | Owns discovery, supervision and update orchestration, not node internals |
 | STM application | portable modules, FreeRTOS | STM32U0 HAL/platform | Owns runtime services; no boot signature or slot-selection policy |
@@ -20,7 +21,7 @@ new common directory.
 
 Each portable package exports its namespaced CMake alias (`Protocol::Protocol`,
 `NodeApi::NodeApi`, `Diagnostics::Diagnostics`, `FirmwareImage::FirmwareImage`, or
-`BootProtocol::BootProtocol`) and keeps its source inventory in `cmake/Sources.cmake`. Keep that
+`BootProtocol::BootProtocol`, or `Stm32RomBoot::Stm32RomBoot`) and keeps its source inventory in `cmake/Sources.cmake`. Keep that
 single inventory shared by native and Zephyr builds.
 
 ## Extraction procedure
@@ -59,5 +60,4 @@ backend should require a target adapter, not changes to public portable headers.
 - Application composition and optional virtual-I/O personality.
 
 Do not extract the development fault controls into a production build by accident. Generated
-artifacts remain untracked, and hardware claims remain tied to the exact board revision and phase
-report that produced them.
+artifacts remain untracked, and hardware claims remain tied to the exact board revision and validation evidence that produced them. See [VALIDATION.md](VALIDATION.md).

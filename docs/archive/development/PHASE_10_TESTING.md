@@ -20,7 +20,7 @@ with protocol 6 means slot-state protection rejected the target: inspect
 
 ## Wire and flash Nordic
 
-Follow [the supervision wiring checklist](../hardware/WIRING.md#phase-10-supervision-addition)
+Follow [the supervision wiring checklist](../../../hardware/WIRING.md#phase-10-supervision-addition)
 with both boards powered off. Add only:
 
 - Nordic P1 pin 11 (P1.08) → STM CN7 pin 14 (NRST).
